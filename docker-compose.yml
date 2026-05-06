@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+    # Sin límite de RAM estricto para que coja todo lo necesario (con 14 GB vas bien)
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    depends_on:
+      - ollama
+    volumes:
+      - ./Modelfile:/Modelfile
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        sleep 10
+        echo "Descargando modelo base deepseek-coder-v2:16b..."
+        ollama pull deepseek-coder-v2:16b
+        echo "Descargando modelo de embeddings nomic-embed-text..."
+        ollama pull nomic-embed-text
+        echo "Creando modelo auditor-seguridad desde Modelfile..."
+        ollama create auditor-seguridad -f /Modelfile
+        echo "Modelos listos."
+    environment:
+      - OLLAMA_HOST=ollama:11434
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    depends_on:
+      - ollama
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    volumes:
+      - chromadb_data:/chroma/chroma
+    ports:
+      - "8001:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+
+volumes:
+  ollama_data:
+  open-webui_data:
+  chromadb_data:

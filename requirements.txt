@@ -1,0 +1,5 @@
+nvdlib
+chromadb
+reportlab
+requests
+ollama
