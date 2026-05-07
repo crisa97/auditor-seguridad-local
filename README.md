@@ -19,22 +19,32 @@ Todo corre dentro de contenedores Docker, sin enviar tu código a ningún servic
 ---
 
 ## 🏗️ Arquitectura
+```text
 ┌──────────────────────────────────────────────────────┐
-│ Tu PC / VM (Parrot, Ubuntu, etc.) │
-│ │
-│ Docker Compose │
-│ ┌─────────────┐ ┌──────────────┐ ┌─────────────┐ │
-│ │ Ollama │ │ ChromaDB │ │ Open WebUI │ │
-│ │ (modelos) │ │ (vector DB) │ │ (opcional) │ │
-│ └──────┬──────┘ └──────┬───────┘ └─────────────┘ │
-│ │ │ │
-│ ┌──────┴────────────────┴───────────────────────┐ │
-│ │ Scripts Python (host) │ │
-│ │ • update_nvd_db.py (sincroniza CVEs) │ │
-│ │ • analizador_rag_cli.py (analiza proyectos) │ │
-│ └───────────────────────────────────────────────┘ │
-│ │
+│                Tu PC / VM Linux                     │
+│          (Parrot OS, Ubuntu, Kali, etc.)            │
+│                                                      │
+│                   Docker Compose                     │
+│                                                      │
+│   ┌─────────────┐   ┌──────────────┐ ┌────────────┐  │
+│   │   Ollama    │   │   ChromaDB   │ │ OpenWebUI │  │
+│   │  (LLMs IA)  │   │ (Vector DB)  │ │ Dashboard  │  │
+│   └──────┬──────┘   └──────┬───────┘ └────────────┘  │
+│          │                 │                         │
+│          └─────────────────┴───────────────┐         │
+│                                            │         │
+│      ┌────────────────────────────────┐    │         │
+│      │      Scripts Python Host       │    │         │
+│      │                                │    │         │
+│      │ • update_nvd_db.py             │    │         │
+│      │   Sincroniza CVEs desde NVD    │    │         │
+│      │                                │    │         │
+│      │ • analizador_rag_cli.py        │    │         │
+│      │   Analiza proyectos con IA     │    │         │
+│      └────────────────────────────────┘    │         │
+│                                                      │
 └──────────────────────────────────────────────────────┘
+```
 
 ---
 
