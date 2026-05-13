@@ -10,6 +10,9 @@ services:
       - "11434:11434"
     environment:
       - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_FLASH_ATTENTION=1 
+
     # Sin límite de RAM estricto para que coja todo lo necesario (con 14 GB vas bien)
 
   ollama-init:
@@ -23,8 +26,8 @@ services:
     command:
       - |
         sleep 10
-        echo "Descargando modelo base deepseek-coder-v2:16b..."
-        ollama pull deepseek-coder-v2:16b
+        echo "Descargando modelo base codellama:7b..."
+        ollama pull codellama:7b
         echo "Descargando modelo de embeddings nomic-embed-text..."
         ollama pull nomic-embed-text
         echo "Creando modelo auditor-seguridad desde Modelfile..."
