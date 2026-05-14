@@ -173,18 +173,35 @@ def update_nvd_collection(collection):
 # -------------------------------------------------------------------
 
 def analyze_file_with_rag(collection, filepath, content):
-    # 1. Recuperar contexto NVD (si RAG está habilitado)
-    if RAG_ENABLED and collection is not None:
+    # 1. Recuperar contexto NVD y exploitdb (si RAG está habilitado)
+        if RAG_ENABLED and collection is not None:
         query = content[:500]
         query_embedding = generate_embedding(query)
         if query_embedding is None:
-            retrieved = []
+            retrieved_nvd = []
+            retrieved_exploit = []
             print(f"  ⚠️ No se pudo generar embedding para {filepath}.")
         else:
-            results = collection.query(query_embeddings=[query_embedding], n_results=3)
-            retrieved = results['documents'][0] if results['documents'] else []
-        context_str = "Vulnerabilidades NVD relacionadas:\n" + "\n---\n".join(retrieved) if retrieved \
-            else "No se encontraron CVEs relevantes en la base de conocimiento."
+            # Consultar NVD
+            results_nvd = collection.query(query_embeddings=[query_embedding], n_results=3)
+            retrieved_nvd = results_nvd['documents'][0] if results_nvd['documents'] else []
+
+            # Consultar ExploitDB (colección separada)
+            try:
+                exploit_collection = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)\
+                                     .get_collection(name="exploitdb_exploits")
+                results_exploit = exploit_collection.query(query_embeddings=[query_embedding], n_results=3)
+                retrieved_exploit = results_exploit['documents'][0] if results_exploit['documents'] else []
+            except Exception:
+                retrieved_exploit = []
+
+        # Construir contexto combinado
+        parts = []
+        if retrieved_nvd:
+            parts.append("**Vulnerabilidades NVD relacionadas:**\n" + "\n---\n".join(retrieved_nvd))
+        if retrieved_exploit:
+            parts.append("**Exploits públicos relacionados (ExploitDB):**\n" + "\n---\n".join(retrieved_exploit))
+        context_str = "\n\n".join(parts) if parts else "No se encontraron CVEs ni exploits relevantes."
     else:
         context_str = ""
 
@@ -296,7 +313,7 @@ def generate_pdf(report_text, output_pdf):
 
     doc.build(story)
     print(f"📄 PDF generado: {output_pdf}")
-    
+
 # MANEJADOR DE CTRL+C
 # -------------------------------------------------------------------
 
