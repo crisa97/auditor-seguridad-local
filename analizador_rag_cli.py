@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Analizador de seguridad de código fuente con RAG (NVD + ChromaDB) usando Ollama.
-Optimizado para modelos ligeros como codellama:7b y preparado para modelos más grandes.
-- Ctrl+C con confirmación y opción de informe parcial.
-- Informes con timestamp guardados en la carpeta "reportes/".
-- Ignora carpetas de dependencias y archivos binarios.
-- Amplia lista de extensiones y archivos sin extensión.
-- Prompt reforzado para buscar todo tipo de vulnerabilidades.
-- Temperatura baja para respuestas consistentes.
-"""
 
 import os
 import sys
@@ -31,14 +21,14 @@ OLLAMA_URL = "http://localhost:11434/api"
 CHROMA_HOST = "localhost"
 CHROMA_PORT = "8001"
 LAST_UPDATE_FILE = "last_nvd_update.txt"
-CHUNK_SIZE = 3000                    # Caracteres máximos por archivo (reducido para RAM)
+CHUNK_SIZE = 8000                    # Caracteres máximos por archivo (reducido para RAM)
 REPORT_DIR = "reportes"              # Carpeta donde se guardan los informes
 
 # Temperatura para respuestas deterministas (0.0-2.0)
 TEMPERATURE = 0.1
 
 # Activar/desactivar el uso de RAG (contexto NVD)
-RAG_ENABLED = False
+RAG_ENABLED = True
 
 # =================================================
 
@@ -225,7 +215,7 @@ Código a analizar:
         "prompt": prompt,
         "stream": False,
         "options": {
-            "num_ctx": 4096,           # Contexto reducido para RAM limitada
+            "num_ctx": 8192,           # Contexto reducido para RAM limitada
             "num_predict": 2048,
             "temperature": TEMPERATURE
         }
@@ -250,13 +240,14 @@ def generate_pdf(report_text, output_pdf):
     styles = getSampleStyleSheet()
     story = []
 
+    # Título principal
     title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, spaceAfter=6*mm)
     story.append(Paragraph("Informe de Seguridad del Proyecto", title_style))
     story.append(Spacer(1, 3*mm))
     story.append(Paragraph(f"Generado el {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 5*mm))
 
-    # Separar por archivos
+    # Dividir por archivos
     parts = report_text.split("="*60)
     for part in parts:
         if not part.strip():
@@ -264,28 +255,48 @@ def generate_pdf(report_text, output_pdf):
         lines = part.strip().splitlines()
         if not lines:
             continue
+
+        # La primera línea es "ARCHIVO: ..."
         header_line = lines[0].strip()
         story.append(Paragraph(f"<b>📄 {header_line}</b>", styles['Heading2']))
         story.append(Spacer(1, 2*mm))
-        content = "\n".join(lines[1:]).strip()
-        if content:
-            content_for_para = content.replace('\n', '<br/>')
-            analysis_style = ParagraphStyle(
-                'Analysis',
-                fontName='Helvetica',
-                fontSize=9,
-                leading=13,
-                alignment=4,          # justificado
-                spaceAfter=4*mm,
-                wordWrap=None
-            )
-            story.append(Paragraph(content_for_para, analysis_style))
+
+        # Procesar el resto del contenido línea por línea
+        content_lines = lines[1:]
+        i = 0
+        while i < len(content_lines):
+            line = content_lines[i].strip()
+            if not line:
+                i += 1
+                continue
+
+            # Si es el título de un hallazgo (comienza con "Título:")
+            if line.startswith("Título:"):
+                # Añadir en negrita
+                story.append(Paragraph(f"<b>{line}</b>", styles['Normal']))
+                i += 1
+                # Acumular las líneas con "•" hasta el siguiente título o vacío
+                bullet_lines = []
+                while i < len(content_lines) and content_lines[i].strip().startswith("•"):
+                    bullet_lines.append(content_lines[i].strip())
+                    i += 1
+                if bullet_lines:
+                    bullets_text = "<br/>".join(bullet_lines)
+                    # Estilo para los detalles
+                    detail_style = ParagraphStyle('Detail', fontName='Helvetica', fontSize=9, leading=13, leftIndent=10*mm)
+                    story.append(Paragraph(bullets_text, detail_style))
+                # Pequeño espacio tras cada hallazgo
+                story.append(Spacer(1, 2*mm))
+            else:
+                # Texto normal (descripciones, etc.)
+                story.append(Paragraph(line, styles['Normal']))
+                i += 1
+
         story.append(Spacer(1, 4*mm))
 
     doc.build(story)
     print(f"📄 PDF generado: {output_pdf}")
-
-# -------------------------------------------------------------------
+    
 # MANEJADOR DE CTRL+C
 # -------------------------------------------------------------------
 

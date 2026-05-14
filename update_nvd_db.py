@@ -10,7 +10,7 @@ CHROMA_HOST = "localhost"
 CHROMA_PORT = "8001"
 LAST_UPDATE_FILE = "last_nvd_update.txt"
 
-BATCH_SIZE = 25                # más pequeño para evitar timeouts
+BATCH_SIZE = 200                # más pequeño para evitar timeouts
 EMBED_TIMEOUT = 300            # hasta 5 minutos por lote si es necesario
 MAX_RETRIES = 2
 API_TIMEOUT = 30
