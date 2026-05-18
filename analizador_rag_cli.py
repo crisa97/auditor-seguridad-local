@@ -174,7 +174,7 @@ def update_nvd_collection(collection):
 
 def analyze_file_with_rag(collection, filepath, content):
     # 1. Recuperar contexto NVD y exploitdb (si RAG está habilitado)
-        if RAG_ENABLED and collection is not None:
+    if RAG_ENABLED and collection is not None:
         query = content[:500]
         query_embedding = generate_embedding(query)
         if query_embedding is None:
@@ -245,7 +245,7 @@ Código a analizar:
             return f"Error al analizar: {r.text}"
     except Exception as e:
         return f"Excepción: {e}"
-
+        
 # -------------------------------------------------------------------
 # GENERACIÓN DE PDF CORREGIDA
 # -------------------------------------------------------------------
