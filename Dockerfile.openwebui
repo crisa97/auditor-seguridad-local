@@ -1,0 +1,40 @@
+FROM ghcr.io/open-webui/open-webui:main
+
+# ── Copiar módulos de validación ──────────────────────────────────────
+COPY config.py /app/backend/config.py
+COPY validador.py /app/backend/validador.py
+COPY patches/openwebui_inject.py /app/backend/openwebui_inject.py
+
+# ── Crear entrypoint personalizado que inyecta el middleware ──────────
+RUN mkdir -p /app/backend/custom_entrypoint
+RUN echo 'import sys, os; sys.path.insert(0, "/app/backend")' > /app/backend/custom_entrypoint/__init__.py
+
+# Parche: modificar el main de Open WebUI para inyectar el middleware
+RUN python3 -c "
+import re
+
+main_path = '/app/backend/open_webui/main.py'
+with open(main_path) as f:
+    content = f.read()
+
+# Buscar donde se crea la app FastAPI y agregar el patch
+# Asumimos que 'app = FastAPI(...)' está en el archivo
+if 'openwebui_inject' not in content:
+    # Agregar import
+    content = 'import openwebui_inject\n' + content
+    # Agregar patch después de crear la app
+    content = re.sub(
+        r'(app = FastAPI\([^)]+\))',
+        r'\1\nopenwebui_inject.patch_openwebui(app)',
+        content
+    )
+    with open(main_path, 'w') as f:
+        f.write(content)
+    print('✅ Middleware de validación inyectado en Open WebUI')
+else:
+    print('Middleware ya presente, saltando patch.')
+"
+
+EXPOSE 8080
+
+CMD ["bash", "-c", "cd /app/backend && python -m open_webui.main"]

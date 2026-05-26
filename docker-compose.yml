@@ -1,6 +1,5 @@
-version: '3.8'
-
 services:
+
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -46,9 +45,7 @@ services:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=FALSE
 
-  # ─────────────────────────────────────────────
-  # Base NoSQL (MongoDB) para vulnerabilidades
-  # ─────────────────────────────────────────────
+  # ── MongoDB (NoSQL para vulnerabilidades) ───────────
   mongodb:
     image: mongo:7
     container_name: mongodb
@@ -63,25 +60,22 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: seguridad_local_pass
       MONGO_INITDB_DATABASE: vulnerabilidades
 
-  # ─────────────────────────────────────────────
-  # PostgreSQL para Open WebUI (usuarios)
-  # ─────────────────────────────────────────────
+  # ── PostgreSQL (Open WebUI + validación) ────────────
   postgres:
     image: postgres:16
     container_name: postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     environment:
       POSTGRES_DB: openwebui
       POSTGRES_USER: openwebui
       POSTGRES_PASSWORD: openwebui_pass
 
-  # ─────────────────────────────────────────────
-  # Redis — cola de mensajes para Celery
-  # ─────────────────────────────────────────────
+  # ── Redis (cola Celery) ─────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -91,9 +85,7 @@ services:
     volumes:
       - redis_data:/data
 
-  # ─────────────────────────────────────────────
-  # Celery Worker — procesa análisis en cola
-  # ─────────────────────────────────────────────
+  # ── Celery Worker ──────────────────────────────────
   celery-worker:
     build:
       context: .
@@ -117,9 +109,30 @@ services:
     deploy:
       replicas: 1
 
-  # ─────────────────────────────────────────────
-  # Open WebUI con PostgreSQL + SMTP
-  # ─────────────────────────────────────────────
+  # ── Validation Service (middleware de seguridad) ────
+  validation-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.validation
+    container_name: validation-service
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - postgres
+      - ollama
+    environment:
+      - DB_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
+      - OLLAMA_API_URL=http://ollama:11434/api
+      - ANALYZER_MODEL=auditor-seguridad
+      - LLM_NUM_CTX=8192
+      - LLM_TEMPERATURE=0.1
+      - API_KEY_SALT=${API_KEY_SALT:-cambiar_esto_salt_seguro_por_favor}
+      - CORS_ORIGINS=http://localhost:3000,https://seguridad.local
+    deploy:
+      replicas: 2  # alta disponibilidad
+
+  # ── Open WebUI ────────────────────────────────────
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
@@ -127,16 +140,14 @@ services:
       - ollama
       - postgres
     ports:
-      - "3000:8080"
+      - "127.0.0.1:3000:8080"
     volumes:
       - open-webui_data:/app/backend/data
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-
-      # Base de datos PostgreSQL para usuarios
       - DATABASE_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
 
-      # ── SMTP / Google SMTP ──────────────────
+      # ── SMTP / Google SMTP ──────────────────────────
       - SMTP_SERVER=smtp.gmail.com
       - SMTP_PORT=587
       - SMTP_USERNAME=

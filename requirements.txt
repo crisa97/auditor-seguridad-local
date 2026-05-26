@@ -7,3 +7,9 @@ pymongo
 celery
 redis
 python-dotenv
+fastapi
+uvicorn
+psycopg2-binary
+pydantic
+pytest
+bcrypt
