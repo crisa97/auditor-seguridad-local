@@ -202,3 +202,80 @@ Abre un issue si encuentras errores o propones mejoras. Los PR son revisados con
 
 Hecho con 🧠 + ❤️ para mantener tu código seguro y privado.
 
+---
+
+## Refactorización automática realizada por opencode
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---|---|
+| `config.py` | **Nuevo** — módulo de configuración centralizada que lee de variables de entorno con `load_dotenv()`. Contiene todas las constantes y helpers compartidos. |
+| `.env` / `.env.example` | **Nuevos** — archivos de configuración con todas las variables extraídas. |
+| `analizador_rag_cli.py` | Extraídas ~20 constantes a `config.py`; eliminada función `fetch_cves_recent` duplicada; refactorizado `_parse_and_store_findings` con `_FIELD_MAP`; extraído helper `_confirmar()` del manejador de señales; eliminada variable muerta `QUEUE_MODE`; eliminado argumento `--analisis-id` no usado. |
+| `update_nvd_db.py` | Extraídas ~10 constantes a `config.py`; eliminadas funciones duplicadas (`fetch_cves_recent`, `generate_embeddings_batch`); extraído helper `check_embedding_endpoint()`. |
+| `index_exploitdb.py` | Extraídas ~8 constantes a `config.py`; eliminada función duplicada `generate_embeddings_batch` y lógica de paginación de ChromaDB. |
+| `mongo_integration.py` | Extraídas 3 constantes (`MONGO_URI`, `MONGO_DATABASE_NAME`, `MONGO_TIMEOUT_MS`) a `config.py`. |
+| `tasks.py` | Eliminados imports no usados (`sys`, `time`, `json`); eliminada variable muerta `archivos_con_hallazgos`; constantes desde `config.py`. |
+| `Dockerfile.worker` | Agregada copia de `config.py` al contenedor. |
+| `.gitignore` | Agregada entrada para `.env`. |
+| `requirements.txt` | Agregado `python-dotenv`. |
+
+### Variables trasladadas a `.env`
+
+| Nombre original | Variable de entorno | Archivos afectados |
+|---|---|---|
+| `MODEL` → | `ANALYZER_MODEL` | analizador_rag_cli.py, config.py |
+| `EMBED_MODEL` → | `EMBEDDING_MODEL` | analizador_rag_cli.py, update_nvd_db.py, index_exploitdb.py, config.py |
+| `OLLAMA_URL` → | `OLLAMA_API_URL` / `OLLAMA_BASE_URL` | analizador_rag_cli.py, update_nvd_db.py, index_exploitdb.py, config.py |
+| `CHROMA_HOST` / `CHROMA_PORT` | `CHROMA_HOST` / `CHROMA_PORT` | Todos los .py |
+| `COLLECTION_NAME` → | `CHROMA_NVD_COLLECTION` | analizador_rag_cli.py, update_nvd_db.py, config.py |
+| `exploitdb_exploits` → | `CHROMA_EXPLOIT_COLLECTION` | analizador_rag_cli.py, index_exploitdb.py, config.py |
+| `LAST_UPDATE_FILE` → | `NVD_LAST_UPDATE_FILE` | analizador_rag_cli.py, update_nvd_db.py, config.py |
+| `CHUNK_SIZE` → | `ANALYSIS_CHUNK_SIZE` | analizador_rag_cli.py, tasks.py, config.py |
+| `REPORT_DIR` → | `REPORT_OUTPUT_DIR` | analizador_rag_cli.py, tasks.py, config.py |
+| `TEMPERATURE` → | `LLM_TEMPERATURE` | analizador_rag_cli.py, config.py |
+| `BATCH_SIZE` (update_nvd) → | `NVD_BATCH_SIZE` | update_nvd_db.py, config.py |
+| `BATCH_SIZE` (exploitdb) → | `EXPLOIT_BATCH_SIZE` | index_exploitdb.py, config.py |
+| `EMBED_TIMEOUT` → | `EMBED_BATCH_TIMEOUT` | update_nvd_db.py, index_exploitdb.py, config.py |
+| `MAX_RETRIES` → | `EMBED_MAX_RETRIES` | update_nvd_db.py, index_exploitdb.py, config.py |
+| `API_TIMEOUT` → | `NVD_API_TIMEOUT` | update_nvd_db.py, config.py |
+| `MONGO_URI` (default) | `MONGO_URI` | mongo_integration.py, config.py |
+| `MONGO_DB` → | `MONGO_DATABASE_NAME` | mongo_integration.py, config.py |
+| `EXPLOITDB_REPO` → | `EXPLOITDB_REPO_URL` | index_exploitdb.py, config.py |
+| `EXPLOITDB_DIR` → | `EXPLOITDB_LOCAL_DIR` | index_exploitdb.py, config.py |
+| `MAX_TEXT_LENGTH` → | `EXPLOIT_MAX_TEXT_LENGTH` | index_exploitdb.py, config.py |
+| `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | (ya eran env vars, se consolidaron en config.py) | tasks.py, config.py |
+
+### Fragmentos de código redundante refactorizados
+
+1. **`fetch_cves_recent`** — función duplicada en `analizador_rag_cli.py` y `update_nvd_db.py`. Extraída a `config.py` como helper compartido.
+
+2. **`generate_embeddings_batch`** — función duplicada en `update_nvd_db.py` e `index_exploitdb.py`. Extraída a `config.py` con parámetros configurables.
+
+3. **Paginación de ChromaDB** — lógica de "leer todos los IDs existentes paginando" duplicada en `update_nvd_db.py` e `index_exploitdb.py`. Extraída a `config.get_chroma_existing_ids()`.
+
+4. **Parseo de hallazgos** — la cadena de `if/elif` con 6 campos repetidos en `_parse_and_store_findings` fue reemplazada por un mapa `_FIELD_MAP` con iteración.
+
+5. **Confirmación de entrada** — lógica de `input("...")` + bucle while con validación duplicada 3 veces en `signal_handler`. Extraída a `_confirmar()`.
+
+6. **Generación de PDF** — patrón repetitivo `story.append(Paragraph(...))` / `story.append(Spacer(...))` extraído a `_add_heading()`.
+
+7. **Variables muertas eliminadas**: `QUEUE_MODE` en `analizador_rag_cli.py`, `archivos_con_hallazgos` en `tasks.py`. Imports no usados: `sys`, `time`, `json` en `tasks.py`.
+
+### Pasos a seguir por el desarrollador
+
+1. **Configurar el archivo `.env`**: copia `.env.example` a `.env` (o renombra el `.env` existente) y ajusta los valores según tu entorno (contraseñas, hosts, puertos, etc.).
+
+2. **Instalar dependencias**: ejecuta `pip install -r requirements.txt` para instalar `python-dotenv` y el resto de dependencias.
+
+3. **Verificar las variables de entorno**: todas las referencias usan `os.getenv` con valores por defecto en `config.py`. No debería ser necesario configurar nada para que funcione out-of-the-box, pero para personalización, edita `.env`.
+
+4. **Ejecutar los tests**: si existen tests, ejecútalos para validar la refactorización:
+   ```bash
+   python3 -c "import config; print('config.py OK')"
+   python3 -m py_compile analizador_rag_cli.py update_nvd_db.py index_exploitdb.py mongo_integration.py tasks.py
+   ```
+
+5. **No commitees `.env`**: el archivo `.env` ya está en `.gitignore`. Solo commitea `.env.example` como plantilla.
+

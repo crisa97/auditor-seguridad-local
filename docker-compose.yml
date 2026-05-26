@@ -11,11 +11,8 @@ services:
     environment:
       - OLLAMA_KEEP_ALIVE=24h
       - OLLAMA_NUM_PARALLEL=1
-      - OLLAMA_FLASH_ATTENTION=1 
-      - OLLAMA_CONTEXT_LENGTH=8192          # ← aquí
-
-
-    # Sin límite de RAM estricto para que coja todo lo necesario (con 14 GB vas bien)
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_CONTEXT_LENGTH=8192
 
   ollama-init:
     image: ollama/ollama:latest
@@ -28,7 +25,7 @@ services:
     command:
       - |
         sleep 10
-        echo "Descargando modelo base codellama:7b..."
+        echo "Descargando modelo base..."
         ollama pull deepseek-coder-v2:16b
         echo "Descargando modelo de embeddings nomic-embed-text..."
         ollama pull nomic-embed-text
@@ -37,18 +34,6 @@ services:
         echo "Modelos listos."
     environment:
       - OLLAMA_HOST=ollama:11434
-
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    container_name: open-webui
-    depends_on:
-      - ollama
-    ports:
-      - "3000:8080"
-    volumes:
-      - open-webui_data:/app/backend/data
-    environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
 
   chromadb:
     image: chromadb/chroma:latest
@@ -61,7 +46,108 @@ services:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=FALSE
 
+  # ─────────────────────────────────────────────
+  # Base NoSQL (MongoDB) para vulnerabilidades
+  # ─────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: seguridad_local_pass
+      MONGO_INITDB_DATABASE: vulnerabilidades
+
+  # ─────────────────────────────────────────────
+  # PostgreSQL para Open WebUI (usuarios)
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: openwebui
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: openwebui_pass
+
+  # ─────────────────────────────────────────────
+  # Redis — cola de mensajes para Celery
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # ─────────────────────────────────────────────
+  # Celery Worker — procesa análisis en cola
+  # ─────────────────────────────────────────────
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: celery-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - ollama
+      - chromadb
+      - mongodb
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434/api
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - MONGO_URI=mongodb://admin:seguridad_local_pass@mongodb:27017/vulnerabilidades?authSource=admin
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    deploy:
+      replicas: 1
+
+  # ─────────────────────────────────────────────
+  # Open WebUI con PostgreSQL + SMTP
+  # ─────────────────────────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    depends_on:
+      - ollama
+      - postgres
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+
+      # Base de datos PostgreSQL para usuarios
+      - DATABASE_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
+
+      # ── SMTP / Google SMTP ──────────────────
+      - SMTP_SERVER=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
+      - SMTP_EMAIL=
+      - SMTP_USE_TLS=true
+
 volumes:
   ollama_data:
   open-webui_data:
   chromadb_data:
+  mongodb_data:
+  postgres_data:
+  redis_data:

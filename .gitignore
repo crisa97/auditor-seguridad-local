@@ -1,3 +1,6 @@
 last_nvd_update.txt
 reportes/
 exploitdb-local/
+*.pyc
+__pycache__/
+.env

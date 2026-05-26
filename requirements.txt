@@ -3,3 +3,7 @@ chromadb
 reportlab
 requests
 ollama
+pymongo
+celery
+redis
+python-dotenv
