@@ -244,9 +244,15 @@ class IndexarExploitDb:
 
         def _embed_batch(start: int, end: int) -> tuple:
             batch = new_docs[start:end]
-            texts = [d['text'] for d in batch]
-            ids = [d['id'] for d in batch]
-            paths = [d['path'] for d in batch]
+            ids, texts, paths = [], [], []
+            for d in batch:
+                t = (d['text'] or "").replace("\x00", "").strip()
+                if t:
+                    ids.append(d['id'])
+                    texts.append(t)
+                    paths.append(d['path'])
+            if not texts:
+                return [], [], [], []
             embeddings = self._embed.generate_batch(texts)
             if embeddings is None:
                 raise RuntimeError(f"Fallo embedding lote {start // batch_size + 1}")

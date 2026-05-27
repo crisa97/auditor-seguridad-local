@@ -1,19 +1,11 @@
-"""
-openwebui_inject.py — Parche para inyectar el middleware de validación
-en el backend de Open WebUI.
-
-Este script se ejecuta durante el arranque de Open WebUI (entrypoint personalizado).
-Parchea el router de FastAPI para interceptar las consultas antes de que lleguen al LLM.
-
-Uso en Dockerfile:
-  COPY patches/openwebui_inject.py /app/backend/openwebui_inject.py
-  CMD ["python", "-c", "import openwebui_inject; from open_webui.main import app; ..."]
-"""
+import asyncio
+import json
 import logging
 import os
 import sys
+import urllib.error
+import urllib.request
 
-# Asegurar que el directorio raíz está en sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from validador import (
@@ -24,10 +16,12 @@ from config import API_KEY_SALT
 
 log = logging.getLogger("openwebui_middleware")
 
-# ── Headers que Open WebUI busca en cada request ──────────────────────────
+ENRICH_URL = os.getenv("ENRICH_URL", "http://validation-service:8000/api/v1/rag/enrichir")
+ENRICH_TIMEOUT = int(os.getenv("ENRICH_TIMEOUT", "120"))
+ENRICH_INTERNAL_TOKEN = os.getenv("ENRICH_INTERNAL_TOKEN", "")
+
 API_KEY_HEADER = "X-API-Key"
 
-# ── Almacén de estado para el middleware ──────────────────────────────────
 _middleware_active = False
 
 
@@ -36,53 +30,74 @@ def is_active():
 
 
 def activate():
-    """Activa el middleware de validación en Open WebUI."""
     global _middleware_active
     _middleware_active = True
-    log.info("🔐 Middleware de validación activado.")
+    log.info("Middleware de validacion activado.")
 
 
 def deactivate():
     global _middleware_active
     _middleware_active = False
-    log.info("🔓 Middleware de validación desactivado.")
+    log.info("Middleware de validacion desactivado.")
 
 
-# ── Función middleware para FastAPI ────────────────────────────────────────
+async def _fetch_rag_context(texto: str, api_key: str) -> str | None:
+    payload = json.dumps({
+        "texto": texto,
+        "api_key": api_key,
+        "max_cves": int(os.getenv("RAG_MAX_CVES", "5")),
+        "max_exploits": int(os.getenv("RAG_MAX_EXPLOITS", "5")),
+    }).encode()
+    req = urllib.request.Request(
+        ENRICH_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        loop = asyncio.get_event_loop()
+        resp = await loop.run_in_executor(
+            None, lambda: urllib.request.urlopen(req, timeout=ENRICH_TIMEOUT)
+        )
+        data = json.loads(resp.read().decode())
+        contexto = data.get("contexto", "")
+        if contexto:
+            log.info("RAG enrichment: %d CVEs, %d Exploits", data.get("total_cves", 0), data.get("total_exploits", 0))
+            return contexto
+    except urllib.error.HTTPError as e:
+        if e.code == 502:
+            log.warning("RAG enrich: servicios vectoriales no disponibles")
+        else:
+            log.warning("RAG enrich: HTTP %d", e.code)
+    except Exception as e:
+        log.warning("RAG enrich error: %s", e)
+    return None
+
 
 async def validation_middleware(request, call_next):
-    """
-    Middleware ASGI que intercepta peticiones a /api/chat/completions
-    y /api/v1/rag/consultar para validar API key y conocimiento.
-    """
     if not _middleware_active:
         return await call_next(request)
 
     path = request.url.path
 
-    # Solo interceptar endpoints de chat/consulta
     if not any(p in path for p in ["/chat/completions", "/rag/consultar"]):
         return await call_next(request)
 
-    # 1. Validar API key
+    # 1. Extraer API key (opcional para web UI, obligatoria para acceso externo)
     api_key = request.headers.get(API_KEY_HEADER) or ""
-    if not api_key:
-        from starlette.responses import JSONResponse
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "API key requerida (header X-API-Key)"},
-        )
 
-    es_valida, msg, datos = validar_api_key(api_key)
-    if not es_valida:
-        from starlette.responses import JSONResponse
-        log.warning("API key inválida: %s", msg)
-        return JSONResponse(
-            status_code=401,
-            content={"detail": msg},
-        )
+    # Solo validar la key si viene explicitamente (acceso externo)
+    if api_key:
+        es_valida, msg, datos = validar_api_key(api_key)
+        if not es_valida:
+            from starlette.responses import JSONResponse
+            log.warning("API key invalida: %s", msg)
+            return JSONResponse(status_code=401, content={"detail": msg})
+    else:
+        # Web UI: usar token interno para enrichment
+        api_key = ENRICH_INTERNAL_TOKEN
 
-    # 2. Extraer texto de la consulta (cachear body para evitar errores de lectura multiple)
+    # 2. Extraer texto de la consulta
     try:
         body = await request.json()
         request._cached_body = body
@@ -102,7 +117,7 @@ async def validation_middleware(request, call_next):
         bloqueos = [r for r in resultados
                     if r.accion == ResultadoValidacion.BLOQUEAR]
         mensaje = (
-            "No puedo procesar esta consulta porque contiene información "
+            "No puedo procesar esta consulta porque contiene informacion "
             "identificada como falsos positivos:\n" +
             "\n".join(f"  - {b.mensaje}" for b in bloqueos)
         )
@@ -112,21 +127,37 @@ async def validation_middleware(request, call_next):
             content={"detail": mensaje, "bloqueos": [b.__dict__ for b in bloqueos]},
         )
 
-    # 4. Registrar pendientes
     for r in resultados:
         if r.accion == ResultadoValidacion.PENDIENTE:
             registrar_pendiente(r.afirmacion, texto_consulta)
 
+    # 4. Enriquecer con contexto RAG
+    if os.getenv("RAG_AUTO_ENRICH", "true").lower() == "true" and api_key:
+        try:
+            rag_contexto = await _fetch_rag_context(texto_consulta, api_key)
+            if rag_contexto:
+                messages = body.get("messages", [])
+                insert_pos = 0
+                for i, m in enumerate(messages):
+                    if m.get("role") == "system":
+                        insert_pos = i + 1
+                    else:
+                        break
+                messages.insert(insert_pos, {
+                    "role": "system",
+                    "content": f"Contexto de vulnerabilidades relevantes:\n{rag_contexto}"
+                })
+                body["messages"] = messages
+                request._body = json.dumps(body).encode()
+                if hasattr(request, "_json"):
+                    del request._json
+        except Exception as e:
+            log.warning("Error en enrichment RAG (continuando sin contexto): %s", e)
+
     return await call_next(request)
 
 
-# ── Parche para el app de FastAPI ──────────────────────────────────────────
-
 def patch_openwebui(app):
-    """
-    Inyecta el middleware de validación en la aplicación FastAPI de Open WebUI.
-    Llámala justo después de crear la app, antes de arrancar el servidor.
-    """
     from fastapi import FastAPI
     if not isinstance(app, FastAPI):
         log.error("El argumento no es una instancia de FastAPI")
@@ -134,5 +165,5 @@ def patch_openwebui(app):
 
     app.middleware("http")(validation_middleware)
     activate()
-    log.info("✅ Middleware de validación inyectado en Open WebUI")
+    log.info("Middleware de validacion inyectado en Open WebUI")
     return True

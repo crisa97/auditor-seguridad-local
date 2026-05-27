@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.interfaces.api.routers.rag import router as rag_router
+from src.interfaces.api.routers.enrich import router as enrich_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +41,7 @@ app.add_middleware(
 )
 
 app.include_router(rag_router, prefix="/api/v1/rag")
+app.include_router(enrich_router, prefix="/api/v1/rag")
 
 
 @app.get("/api/v1/health")
@@ -53,6 +55,7 @@ def startup_event():
     log.info("  Validation Service iniciado")
     log.info("  Endpoints:")
     log.info("    POST /api/v1/rag/consultar")
+    log.info("    POST /api/v1/rag/enrichir")
     log.info("    GET  /api/v1/health")
     log.info("    GET  /api/v1/docs")
     log.info("=" * 50)

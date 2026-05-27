@@ -122,14 +122,22 @@ services:
     depends_on:
       - postgres
       - ollama
+      - chromadb
+      - mongodb
     environment:
       - DB_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
       - OLLAMA_API_URL=http://ollama:11434/api
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - MONGO_URI=mongodb://admin:seguridad_local_pass@mongodb:27017/vulnerabilidades?authSource=admin
+      - EMBED_SINGLE_TIMEOUT=300
+      - EMBEDDING_MODEL=nomic-embed-text
       - ANALYZER_MODEL=auditor-seguridad
       - LLM_NUM_CTX=8192
       - LLM_TEMPERATURE=0.1
       - API_KEY_SALT=${API_KEY_SALT:-cambiar_esto_salt_seguro_por_favor}
       - CORS_ORIGINS=http://localhost:3000,https://seguridad.local
+      - ENRICH_INTERNAL_TOKEN=${ENRICH_INTERNAL_TOKEN:-insecure-change-me}
     deploy:
       replicas: 1
 
@@ -149,7 +157,11 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - DATABASE_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
+      - DB_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
+      - API_KEY_SALT=${API_KEY_SALT:-cambiar_esto_salt_seguro_por_favor}
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-auditor-seguridad-local-key-change-in-production}
+      - ENRICH_INTERNAL_TOKEN=${ENRICH_INTERNAL_TOKEN:-insecure-change-me}
+      - ENRICH_TIMEOUT=120
 
       # ── SMTP / Google SMTP ──────────────────────────
       - SMTP_SERVER=smtp.gmail.com
