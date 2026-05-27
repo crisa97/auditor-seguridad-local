@@ -8,31 +8,9 @@ COPY src/ /app/backend/src/
 COPY database/ /app/backend/database/
 
 # Parche: modificar el main de Open WebUI para inyectar el middleware
-RUN python3 -c "
-import re
-
-main_path = '/app/backend/open_webui/main.py'
-with open(main_path) as f:
-    content = f.read()
-
-# Buscar donde se crea la app FastAPI y agregar el patch
-# Asumimos que 'app = FastAPI(...)' está en el archivo
-if 'openwebui_inject' not in content:
-    # Agregar import
-    content = 'import openwebui_inject\n' + content
-    # Agregar patch después de crear la app
-    content = re.sub(
-        r'(app = FastAPI\([^)]+\))',
-        r'\1\nopenwebui_inject.patch_openwebui(app)',
-        content
-    )
-    with open(main_path, 'w') as f:
-        f.write(content)
-    print('✅ Middleware de validación inyectado en Open WebUI')
-else:
-    print('Middleware ya presente, saltando patch.')
-"
+COPY patches/inject_middleware.py /app/backend/inject_middleware.py
+RUN python3 /app/backend/inject_middleware.py
 
 EXPOSE 8080
 
-CMD ["bash", "-c", "cd /app/backend && python -m open_webui.main"]
+CMD ["bash", "-c", "cd /app/backend && uvicorn open_webui.main:app --host 0.0.0.0 --port 8080 --forwarded-allow-ips '*'"]

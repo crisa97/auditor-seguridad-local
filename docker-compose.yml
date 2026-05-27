@@ -116,7 +116,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.validation
-    container_name: validation-service
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"
@@ -132,7 +131,7 @@ services:
       - API_KEY_SALT=${API_KEY_SALT:-cambiar_esto_salt_seguro_por_favor}
       - CORS_ORIGINS=http://localhost:3000,https://seguridad.local
     deploy:
-      replicas: 2  # alta disponibilidad
+      replicas: 1
 
   # ── Open WebUI ────────────────────────────────────
   open-webui:
@@ -150,6 +149,7 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - DATABASE_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-auditor-seguridad-local-key-change-in-production}
 
       # ── SMTP / Google SMTP ──────────────────────────
       - SMTP_SERVER=smtp.gmail.com

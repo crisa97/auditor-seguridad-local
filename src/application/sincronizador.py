@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 import requests
@@ -238,28 +239,39 @@ class IndexarExploitDb:
 
         print(f"Se indexaran {len(new_docs)} nuevos exploits.")
 
+        batch_size = settings.exploit_batch_size
         total = len(new_docs)
-        for start in range(0, total, settings.exploit_batch_size):
-            end = min(start + settings.exploit_batch_size, total)
+
+        def _embed_batch(start: int, end: int) -> tuple:
             batch = new_docs[start:end]
             texts = [d['text'] for d in batch]
             ids = [d['id'] for d in batch]
             paths = [d['path'] for d in batch]
-
-            print(f"Lote {start // settings.exploit_batch_size + 1}: generando embeddings...")
             embeddings = self._embed.generate_batch(texts)
             if embeddings is None:
-                print(f"Fallo en lote. Abortando.")
-                return
+                raise RuntimeError(f"Fallo embedding lote {start // batch_size + 1}")
+            return ids, texts, paths, embeddings
 
-            self._vector_store.upsert(
-                settings.chroma_exploit_collection,
-                ids=ids,
-                documents=texts,
-                embeddings=embeddings,
-                metadatas=[{"path": p} for p in paths],
-            )
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {}
+            for start in range(0, total, batch_size):
+                end = min(start + batch_size, total)
+                future = pool.submit(_embed_batch, start, end)
+                futures[future] = (start, end)
 
-            print(f"   OK Lote {start // settings.exploit_batch_size + 1} ({start + 1}-{end}/{total}) insertado.")
+            for future in as_completed(futures):
+                start, end = futures.pop(future)
+                ids, texts, paths, embeddings = future.result()
+                try:
+                    self._vector_store.upsert(
+                        settings.chroma_exploit_collection,
+                        ids=ids, documents=texts,
+                        embeddings=embeddings,
+                        metadatas=[{"path": p} for p in paths],
+                    )
+                    print(f"   OK Lote {start // batch_size + 1} ({start + 1}-{end}/{total}) insertado.")
+                except Exception as e:
+                    print(f"Error en lote {start // batch_size + 1}: {e}")
+                    return
 
         print(f"Indexacion completada. Total: {len(existing_ids) + total} exploits.")

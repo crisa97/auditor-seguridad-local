@@ -54,11 +54,11 @@ class Settings:
     # ExploitDB
     exploitdb_repo_url: str = field(default_factory=lambda: os.getenv("EXPLOITDB_REPO_URL", "https://gitlab.com/exploit-database/exploitdb.git"))
     exploitdb_local_dir: str = field(default_factory=lambda: os.getenv("EXPLOITDB_LOCAL_DIR", "./exploitdb-local"))
-    exploit_batch_size: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_BATCH_SIZE", "100")))
+    exploit_batch_size: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_BATCH_SIZE", "500")))
     exploit_max_text_length: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_MAX_TEXT_LENGTH", "2000")))
 
     # NVD batch
-    nvd_batch_size: int = field(default_factory=lambda: int(os.getenv("NVD_BATCH_SIZE", "200")))
+    nvd_batch_size: int = field(default_factory=lambda: int(os.getenv("NVD_BATCH_SIZE", "500")))
 
     # Celery
     celery_broker_url: str = field(default_factory=lambda: os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"))

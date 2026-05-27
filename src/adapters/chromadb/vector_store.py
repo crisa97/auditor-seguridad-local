@@ -20,7 +20,7 @@ class ChromaVectorStore(IVectorStore):
     def _get_collection(self, name: str):
         try:
             return self._client.get_collection(name=name)
-        except chromadb.errors.CollectionNotFoundError:
+        except (chromadb.errors.NotFoundError, ValueError):
             return self._client.create_collection(name=name)
 
     def query(self, embedding: list[float], collection_name: str, n_results: int = 3) -> list[str]:
