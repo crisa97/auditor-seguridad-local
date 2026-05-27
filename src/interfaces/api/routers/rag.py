@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Optional
 
 import requests
@@ -19,7 +18,6 @@ class ConsultaRAG(BaseModel):
                        description="Texto de la consulta")
     api_key: str = Field(..., min_length=1, description="API key para autenticacion")
     modelo: Optional[str] = Field(None, description="Modelo a usar (opcional)")
-    stream: Optional[bool] = Field(False, description="Respuesta en streaming")
 
 
 class RespuestaRAG(BaseModel):
@@ -31,14 +29,20 @@ class RespuestaRAG(BaseModel):
 
 @router.post("/consultar", response_model=RespuestaRAG)
 def consultar_rag(body: ConsultaRAG, request: Request):
+    client_ip = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for") or getattr(request.client, "host", "unknown")
     log.info("Consulta RAG recibida (texto length=%d, ip=%s)",
-             len(body.texto), request.client.host)
+             len(body.texto), client_ip)
 
     validador_key = get_validar_api_key()
     es_valida, msg, datos_cliente = validador_key.execute(body.api_key)
     if not es_valida:
         log.warning("API key invalida: %s", msg)
-        raise HTTPException(status_code=401, detail=msg)
+        raise HTTPException(status_code=401, detail="API key invalida")
+
+    permisos = (datos_cliente.get("permisos") or "").split(",")
+    if "rag:leer" not in permisos and "rag:*" not in permisos:
+        log.warning("API key sin permiso rag:leer - cliente: %s", datos_cliente.get("nombre_cliente"))
+        raise HTTPException(status_code=403, detail="Permiso insuficiente")
 
     log.info("API key valida - cliente: %s", datos_cliente.get("nombre_cliente"))
 
@@ -70,7 +74,7 @@ def consultar_rag(body: ConsultaRAG, request: Request):
         payload = {
             "model": modelo,
             "prompt": body.texto,
-            "stream": body.stream,
+            "stream": False,
             "options": {
                 "num_ctx": settings.llm_num_ctx,
                 "temperature": settings.llm_temperature,
@@ -83,9 +87,15 @@ def consultar_rag(body: ConsultaRAG, request: Request):
         )
         r.raise_for_status()
         respuesta = r.json().get("response", "")
-    except Exception as e:
+    except requests.Timeout:
+        log.error("Timeout al consultar Ollama (modelo=%s)", modelo)
+        raise HTTPException(status_code=504, detail="El modelo no respondio a tiempo")
+    except requests.RequestException as e:
         log.error("Error al consultar Ollama: %s", e)
-        raise HTTPException(status_code=502, detail=f"Error del modelo: {e}")
+        raise HTTPException(status_code=502, detail="Error de comunicacion con el modelo")
+    except (KeyError, ValueError) as e:
+        log.error("Error al parsear respuesta de Ollama: %s", e)
+        raise HTTPException(status_code=502, detail="Respuesta invalida del modelo")
 
     return RespuestaRAG(
         respuesta=respuesta,

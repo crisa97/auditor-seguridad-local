@@ -1,8 +1,6 @@
 """
 Wrapper backward-compatible que re-exporta desde la nueva arquitectura.
 """
-import sys
-sys.path.insert(0, "/home/crisa/seguridad-local")
 
 from src.infrastructure.config import settings
 

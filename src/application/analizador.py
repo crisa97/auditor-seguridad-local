@@ -1,3 +1,4 @@
+import logging
 import os
 import datetime
 from typing import Optional
@@ -9,14 +10,16 @@ from src.ports.repositories import IAnalisisRepository, IHallazgoRepository, ICv
 from src.ports.services import ILlmService, IEmbeddingService, IVectorStore, IReportGenerator
 from src.infrastructure.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 _FIELD_MAP = [
     (("Título:", "Titulo:"), "titulo"),
-    (("• Severidad:", "* Severidad:"), "severidad"),
-    (("• Ubicación:", "* Ubicación:"), "ubicacion"),
-    (("• Descripción:", "* Descripción:"), "descripcion"),
-    (("• Mitigación:", "* Mitigación:"), "mitigacion"),
-    (("• CVE o CWE:", "* CVE o CWE:"), "cve_cwe"),
+    (("• Severidad:", "* Severidad:", "- Severidad:"), "severidad"),
+    (("• Ubicación:", "* Ubicación:", "- Ubicación:", "- Ubicacion:"), "ubicacion"),
+    (("• Descripción:", "* Descripción:", "- Descripción:", "- Descripcion:"), "descripcion"),
+    (("• Mitigación:", "* Mitigación:", "- Mitigación:", "- Mitigacion:"), "mitigacion"),
+    (("• CVE o CWE:", "* CVE o CWE:", "- CVE o CWE:"), "cve_cwe"),
 ]
 
 
@@ -85,9 +88,6 @@ class AnalizarProyecto:
                 entry = f"{'=' * 60}\nARCHIVO: {path}\n{'=' * 60}\n{res}\n"
                 report_lines.append(entry)
 
-                if self._report_gen:
-                    self._report_gen.generate_txt("\n".join(report_lines), txt_path)
-
                 self._analisis_repo.update_state(
                     analisis_id, EstadoAnalisis.EN_PROCESO,
                     archivosAnalizados=total_files,
@@ -136,16 +136,15 @@ class AnalizarProyecto:
                     query_embedding, settings.chroma_nvd_collection,
                     n_results=settings.chroma_query_results,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Error querying ChromaDB NVD collection: %s", e)
             try:
                 retrieved_exploit = self._vector_store.query(
                     query_embedding, settings.chroma_exploit_collection,
                     n_results=settings.chroma_query_results,
                 )
-            except Exception:
-                pass
-
+            except Exception as e:
+                logger.warning("Error querying ChromaDB ExploitDB collection: %s", e)
             if self._cve_repo:
                 for i, doc_text in enumerate(retrieved_nvd):
                     for line in doc_text.split('\n'):
@@ -173,12 +172,12 @@ Realiza un analisis completo en busca de **cualquier tipo de vulnerabilidad o ma
 
 Para cada vulnerabilidad que encuentres, proporciona la informacion con este formato exacto:
 
-Titulo:
-- Severidad:
-- Ubicacion:
-- Descripcion:
-- Mitigacion:
-- CVE o CWE:
+Título:
+• Severidad:
+• Ubicación:
+• Descripción:
+• Mitigación:
+• CVE o CWE:
 
 Si no encuentras ninguna vulnerabilidad, responde unicamente: "No se encontraron vulnerabilidades".
 
@@ -188,10 +187,10 @@ Codigo a analizar:
 {content}"""
 
         response = self._llm.generate(prompt)
-        self._parse_and_store_findings(analisis_id, filepath, response)
+        self._parse_and_store_findings(analisis_id, filepath, response, raw_response=response)
         return response
 
-    def _parse_and_store_findings(self, analisis_id: str, filepath: str, response: str) -> None:
+    def _parse_and_store_findings(self, analisis_id: str, filepath: str, response: str, raw_response: str = "") -> None:
         if "No se encontraron vulnerabilidades" in response:
             return
         lines = response.strip().splitlines()
@@ -202,7 +201,7 @@ Codigo a analizar:
                 for prefix in prefixes:
                     if line.startswith(prefix):
                         if key == "titulo" and current.get("titulo"):
-                            self._save_finding(analisis_id, filepath, current)
+                            self._save_finding(analisis_id, filepath, current, raw_response=raw_response)
                             current = {}
                         current[key] = line.split(":", 1)[1].strip()
                         break
@@ -210,9 +209,9 @@ Codigo a analizar:
                     continue
                 break
         if current.get("titulo"):
-            self._save_finding(analisis_id, filepath, current)
+            self._save_finding(analisis_id, filepath, current, raw_response=raw_response)
 
-    def _save_finding(self, analisis_id: str, filepath: str, finding: dict[str, str]) -> None:
+    def _save_finding(self, analisis_id: str, filepath: str, finding: dict[str, str], raw_response: str = "") -> None:
         try:
             self._hallazgo_repo.store(Hallazgo(
                 analisis_id=analisis_id,
@@ -223,9 +222,10 @@ Codigo a analizar:
                 mitigacion=finding.get("mitigacion", ""),
                 ubicacion=finding.get("ubicacion", ""),
                 cve_cwe=finding.get("cve_cwe", "N/A"),
+                raw_response=raw_response,
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("No se pudo guardar el hallazgo en MongoDB: %s", e)
 
     def _enviar_resultado(self, texto: str, api_key: str, servicio_url: str, analisis_id: str) -> None:
         import logging
@@ -238,7 +238,7 @@ Codigo a analizar:
                 "analisis_id": analisis_id,
             }
             r = requests.post(
-                f"{servicio_url.rstrip('/')}/api/v1/rag/resultado",
+                f"{servicio_url.rstrip('/')}/api/v1/rag/consultar",
                 json=payload, timeout=30,
             )
             if r.status_code == 200:

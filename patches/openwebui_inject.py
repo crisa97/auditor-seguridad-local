@@ -82,9 +82,10 @@ async def validation_middleware(request, call_next):
             content={"detail": msg},
         )
 
-    # 2. Extraer texto de la consulta
+    # 2. Extraer texto de la consulta (cachear body para evitar errores de lectura multiple)
     try:
         body = await request.json()
+        request._cached_body = body
         texto_consulta = body.get("messages", [{}])[-1].get("content", "") or \
                          body.get("prompt", "") or \
                          body.get("texto", "")

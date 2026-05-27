@@ -3,10 +3,6 @@ from typing import Optional
 
 from src.domain.models import ApiKey, Afirmacion
 from src.domain.enums import AccionValidacion
-from src.domain.exceptions import (
-    ApiKeyInvalidaError, ApiKeyExpiradaError, ApiKeyDesactivadaError,
-    AfirmacionBloqueadaError,
-)
 from src.ports.repositories import IApiKeyRepository, IConocimientoRepository
 from src.ports.services import IAfirmacionExtractor
 
@@ -41,7 +37,7 @@ class ValidarApiKey:
         if not api_key.activa:
             return False, "API key desactivada.", {}
 
-        if api_key.fecha_expiracion and datetime.now(timezone.utc) > api_key.fecha_expiracion.replace(tzinfo=timezone.utc):
+        if api_key.fecha_expiracion and datetime.now(timezone.utc) > api_key.fecha_expiracion.astimezone(timezone.utc):
             return False, "API key expirada.", {}
 
         self._repo.update_ultimo_uso(key_hash)

@@ -1,7 +1,7 @@
 -- ============================================================================
--- esquema.sql — Migraciones para el módulo de validación y API keys
+-- schema.sql — Migraciones para el módulo de validación y API keys
 -- ============================================================================
--- Uso: psql -U openwebui -d openwebui -f esquema.sql
+-- Uso: psql -U openwebui -d openwebui -f schema.sql
 -- ============================================================================
 
 BEGIN;
@@ -9,7 +9,7 @@ BEGIN;
 -- 1. Conocimiento validado (anti-falsos positivos)
 CREATE TABLE IF NOT EXISTS conocimiento_validado (
     id              SERIAL PRIMARY KEY,
-    texto_afirmacion TEXT NOT NULL,
+    texto_afirmacion TEXT NOT NULL UNIQUE,
     es_verdadero    BOOLEAN NOT NULL,
     fuente          VARCHAR(500),
     fecha_validacion TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS pendiente_validacion (
 
 CREATE INDEX IF NOT EXISTS idx_pendiente_revisado
     ON pendiente_validacion (revisado);
+
+CREATE INDEX IF NOT EXISTS idx_pendiente_afirmacion
+    ON pendiente_validacion (texto_afirmacion);
 
 COMMENT ON TABLE pendiente_validacion IS
     'Afirmaciones no validadas que requieren revisión humana.';

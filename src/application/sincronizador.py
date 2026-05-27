@@ -1,7 +1,8 @@
 import datetime
+import logging
 import os
 import subprocess
-import sys
+import time
 from typing import Optional
 
 import requests
@@ -10,6 +11,8 @@ from src.domain.models import Cve, Exploit
 from src.ports.repositories import ICveRepository, IExploitRepository
 from src.ports.services import IEmbeddingService, IVectorStore
 from src.infrastructure.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class SincronizarNvd:
@@ -31,7 +34,8 @@ class SincronizarNvd:
                 timeout=60,
             )
             return r.status_code == 200 and "embeddings" in r.json()
-        except Exception:
+        except Exception as e:
+            logger.warning("Error checking embed endpoint: %s", e)
             return False
 
     def execute(self) -> None:
@@ -94,11 +98,6 @@ class SincronizarNvd:
                     documents=batch_docs,
                     embeddings=embeddings,
                 )
-                try:
-                    for cve_id in batch_ids:
-                        self._cve_repo.store(Cve(id=cve_id, description="", chroma_id=cve_id))
-                except Exception:
-                    pass
                 print(f"   OK Lote {start // settings.nvd_batch_size + 1} ({start + 1}-{end}/{total}) insertado.")
             except Exception as e:
                 print(f"Error al insertar lote: {e}")
@@ -117,12 +116,16 @@ class SincronizarNvd:
             'resultsPerPage': settings.nvd_page_size,
             'startIndex': 0,
         }
+        headers = {}
+        if settings.nvd_api_key:
+            headers['apiKey'] = settings.nvd_api_key
         all_cves: list[dict] = []
         while True:
             try:
                 resp = requests.get(
                     settings.nvd_api_base_url,
                     params=params,
+                    headers=headers or None,
                     timeout=settings.nvd_api_timeout,
                 )
                 if resp.status_code == 404:
@@ -149,7 +152,6 @@ class SincronizarNvd:
                 params['startIndex'] = (
                     data.get('startIndex', 0) + data.get('resultsPerPage', 0)
                 )
-                import time
                 time.sleep(settings.nvd_api_delay)
             except Exception as e:
                 print(f"Error al conectar con la API NVD: {e}")
@@ -182,8 +184,7 @@ class IndexarExploitDb:
     def _parse_files(self) -> list[dict]:
         exploits_dir = os.path.join(settings.exploitdb_local_dir, "exploits")
         if not os.path.isdir(exploits_dir):
-            print(f"No se encontro la carpeta {exploits_dir}")
-            sys.exit(1)
+            raise FileNotFoundError(f"No se encontro la carpeta {exploits_dir}")
 
         documents: list[dict] = []
         for root, dirs, files in os.walk(exploits_dir):
@@ -200,8 +201,8 @@ class IndexarExploitDb:
                             "path": rel_path,
                             "text": text,
                         })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("No se pudo leer archivo exploit %s: %s", path, e)
         return documents
 
     def execute(self) -> None:
@@ -258,12 +259,6 @@ class IndexarExploitDb:
                 embeddings=embeddings,
                 metadatas=[{"path": p} for p in paths],
             )
-
-            try:
-                for exp_id in ids:
-                    self._exploit_repo.store(Exploit(id=exp_id, path="", text="", chroma_id=exp_id))
-            except Exception:
-                pass
 
             print(f"   OK Lote {start // settings.exploit_batch_size + 1} ({start + 1}-{end}/{total}) insertado.")
 

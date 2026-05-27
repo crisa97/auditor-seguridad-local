@@ -51,7 +51,7 @@ services:
     container_name: mongodb
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodb_data:/data/db
       - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
@@ -97,15 +97,17 @@ services:
       - ollama
       - chromadb
       - mongodb
+      - postgres
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - OLLAMA_URL=http://ollama:11434/api
+      - OLLAMA_API_URL=http://ollama:11434/api
+      - OLLAMA_BASE_URL=http://ollama:11434
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
       - MONGO_URI=mongodb://admin:seguridad_local_pass@mongodb:27017/vulnerabilidades?authSource=admin
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - DB_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
+      - API_KEY_SALT=${API_KEY_SALT:-cambiar_esto_salt_seguro_por_favor}
     deploy:
       replicas: 1
 
@@ -134,7 +136,9 @@ services:
 
   # ── Open WebUI ────────────────────────────────────
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    build:
+      context: .
+      dockerfile: Dockerfile.openwebui
     container_name: open-webui
     depends_on:
       - ollama

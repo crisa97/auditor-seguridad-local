@@ -1,3 +1,4 @@
+import logging
 import time
 from typing import Optional
 
@@ -5,6 +6,8 @@ import requests
 
 from src.ports.services import IEmbeddingService
 from src.infrastructure.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaEmbeddingService(IEmbeddingService):
@@ -18,7 +21,8 @@ class OllamaEmbeddingService(IEmbeddingService):
             )
             r.raise_for_status()
             return r.json()["embeddings"][0]
-        except Exception:
+        except Exception as e:
+            logger.warning("Error generating single embedding: %s", e)
             return None
 
     def generate_batch(self, texts: list[str]) -> Optional[list[list[float]]]:
@@ -26,7 +30,7 @@ class OllamaEmbeddingService(IEmbeddingService):
         for attempt in range(settings.embed_max_retries):
             try:
                 r = requests.post(
-                    f"{settings.ollama_base_url}/api/embed",
+                    f"{settings.ollama_api_url}/embed",
                     json=payload,
                     timeout=settings.embed_batch_timeout,
                 )
@@ -38,6 +42,7 @@ class OllamaEmbeddingService(IEmbeddingService):
                 if attempt < settings.embed_max_retries - 1:
                     time.sleep(5)
                     continue
-            except Exception:
+            except Exception as e:
+                logger.warning("Error generating batch embeddings: %s", e)
                 break
         return None

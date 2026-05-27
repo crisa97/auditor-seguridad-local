@@ -9,6 +9,7 @@ def main():
     print("Verificando conexion a MongoDB...")
     if not MongoConnection.ping():
         print("No se pudo conectar a MongoDB.")
+        return
 
     sinc = get_sincronizador_nvd()
     sinc.execute()

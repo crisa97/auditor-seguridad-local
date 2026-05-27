@@ -4,10 +4,8 @@ FROM ghcr.io/open-webui/open-webui:main
 COPY config.py /app/backend/config.py
 COPY validador.py /app/backend/validador.py
 COPY patches/openwebui_inject.py /app/backend/openwebui_inject.py
-
-# ── Crear entrypoint personalizado que inyecta el middleware ──────────
-RUN mkdir -p /app/backend/custom_entrypoint
-RUN echo 'import sys, os; sys.path.insert(0, "/app/backend")' > /app/backend/custom_entrypoint/__init__.py
+COPY src/ /app/backend/src/
+COPY database/ /app/backend/database/
 
 # Parche: modificar el main de Open WebUI para inyectar el middleware
 RUN python3 -c "

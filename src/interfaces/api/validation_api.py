@@ -27,9 +27,13 @@ app = FastAPI(
     docs_url="/api/v1/docs",
 )
 
+_cors_origins = os.getenv("CORS_ORIGINS")
+if not _cors_origins:
+    log.warning("CORS_ORIGINS no configurado - permitiendo solo localhost:3000")
+    _cors_origins = "http://localhost:3000"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

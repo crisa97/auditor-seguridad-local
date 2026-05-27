@@ -1,5 +1,7 @@
 from typing import Optional
 
+from pymongo import UpdateOne
+
 from src.domain.models import Cve, Exploit
 from src.ports.repositories import ICveRepository, IExploitRepository
 from src.adapters.mongodb.connection import MongoConnection
@@ -35,14 +37,19 @@ class MongoCveRepository(ICveRepository):
         )
 
     def store_bulk(self, cves: list[Cve]) -> int:
-        for cve in cves:
-            self._col.update_one({"id": cve.id}, {"$set": {
+        if not cves:
+            return 0
+        operations = [
+            UpdateOne({"id": cve.id}, {"$set": {
                 "id": cve.id,
                 "description": cve.description,
                 "severity": cve.severity,
                 "score": cve.score,
                 "chromaId": cve.chroma_id,
             }}, upsert=True)
+            for cve in cves
+        ]
+        self._col.bulk_write(operations)
         return len(cves)
 
     def get_all_ids(self) -> list[str]:
@@ -79,13 +86,18 @@ class MongoExploitRepository(IExploitRepository):
         )
 
     def store_bulk(self, exploits: list[Exploit]) -> int:
-        for exp in exploits:
-            self._col.update_one({"id": exp.id}, {"$set": {
+        if not exploits:
+            return 0
+        operations = [
+            UpdateOne({"id": exp.id}, {"$set": {
                 "id": exp.id,
                 "path": exp.path,
                 "text": exp.text,
                 "chromaId": exp.chroma_id,
             }}, upsert=True)
+            for exp in exploits
+        ]
+        self._col.bulk_write(operations)
         return len(exploits)
 
     def get_all_ids(self) -> list[str]:

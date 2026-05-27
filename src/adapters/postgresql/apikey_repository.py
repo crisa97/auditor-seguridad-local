@@ -1,5 +1,4 @@
 import hashlib
-import hmac
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -44,7 +43,7 @@ class PostgresApiKeyRepository(IApiKeyRepository):
                 ultimo_uso=row[6],
             )
         finally:
-            conn.close()
+            PostgresConnection.return_conn(conn)
 
     def store(self, api_key: ApiKey) -> None:
         conn = PostgresConnection.get_conn()
@@ -59,7 +58,7 @@ class PostgresApiKeyRepository(IApiKeyRepository):
             )
             conn.commit()
         finally:
-            conn.close()
+            PostgresConnection.return_conn(conn)
 
     def update_ultimo_uso(self, key_hash: str) -> None:
         conn = PostgresConnection.get_conn()
@@ -71,4 +70,4 @@ class PostgresApiKeyRepository(IApiKeyRepository):
             )
             conn.commit()
         finally:
-            conn.close()
+            PostgresConnection.return_conn(conn)

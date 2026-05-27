@@ -42,6 +42,11 @@ def get_cve_repository():
     return DIContainer.get("cve_repo", MongoCveRepository)
 
 
+def get_exploit_repository():
+    from src.adapters.mongodb.cve_repository import MongoExploitRepository
+    return DIContainer.get("exploit_repo", MongoExploitRepository)
+
+
 def get_hallazgo_repository():
     from src.adapters.mongodb.hallazgo_repository import MongoHallazgoRepository
     return DIContainer.get("hallazgo_repo", MongoHallazgoRepository)
@@ -112,7 +117,7 @@ def get_sincronizador_nvd():
 def get_indexador_exploitdb():
     from src.application.sincronizador import IndexarExploitDb
     return DIContainer.get("indexador_exploitdb", lambda: IndexarExploitDb(
-        exploit_repo=get_cve_repository(),  # ExploitDB usa misma interface
+        exploit_repo=get_exploit_repository(),
         embed=get_embedding_service(),
         vector_store=get_vector_store(),
     ))

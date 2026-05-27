@@ -1,8 +1,6 @@
 """
 Wrapper backward-compatible.
 """
-import hashlib
-import hmac
 from datetime import datetime, timezone
 
 from src.infrastructure.config import settings

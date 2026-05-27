@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY config.py .
 COPY validador.py .
 COPY validation_service.py .
+COPY src/ src/
 COPY database/ database/
 
 ENV PYTHONUNBUFFERED=1

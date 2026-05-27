@@ -1,4 +1,6 @@
 import datetime
+import html
+import logging
 import os
 
 from reportlab.lib.pagesizes import A4
@@ -7,6 +9,12 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
 from src.ports.services import IReportGenerator
+
+logger = logging.getLogger(__name__)
+
+
+def _escape_html(text: str) -> str:
+    return html.escape(text, quote=True)
 
 
 class PdfReportGenerator(IReportGenerator):
@@ -42,7 +50,7 @@ class PdfReportGenerator(IReportGenerator):
             if not split_lines:
                 continue
 
-            story.append(Paragraph(f"<b>{split_lines[0].strip()}</b>", styles['Heading2']))
+            story.append(Paragraph(f"<b>{_escape_html(split_lines[0].strip())}</b>", styles['Heading2']))
 
             content_lines = split_lines[1:]
             i = 0
@@ -53,7 +61,7 @@ class PdfReportGenerator(IReportGenerator):
                     continue
 
                 if line.startswith("Título:") or line.startswith("Titulo:"):
-                    story.append(Paragraph(f"<b>{line}</b>", styles['Normal']))
+                    story.append(Paragraph(f"<b>{_escape_html(line)}</b>", styles['Normal']))
                     i += 1
                     bullet_lines = []
                     while i < len(content_lines) and (
@@ -63,15 +71,19 @@ class PdfReportGenerator(IReportGenerator):
                         bullet_lines.append(content_lines[i].strip())
                         i += 1
                     if bullet_lines:
-                        story.append(Paragraph("<br/>".join(bullet_lines), detail_style))
+                        story.append(Paragraph("<br/>".join(_escape_html(l) for l in bullet_lines), detail_style))
                     story.append(Spacer(1, 2*mm))
                 else:
-                    story.append(Paragraph(line, styles['Normal']))
+                    story.append(Paragraph(_escape_html(line), styles['Normal']))
                     i += 1
 
             story.append(Spacer(1, 4*mm))
 
-        doc.build(story)
+        try:
+            doc.build(story)
+        except Exception as e:
+            logger.error("Error al generar PDF: %s", e)
+            raise
 
     def generate_txt(self, report_text: str, output_path: str) -> None:
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)

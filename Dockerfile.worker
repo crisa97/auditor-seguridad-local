@@ -9,6 +9,7 @@ COPY config.py .
 COPY tasks.py .
 COPY mongo_integration.py .
 COPY analizador_rag_cli.py .
+COPY src/ src/
 
 ENV PYTHONUNBUFFERED=1
 

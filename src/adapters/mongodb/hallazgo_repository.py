@@ -30,14 +30,14 @@ class MongoHallazgoRepository(IHallazgoRepository):
     def get_by_analisis(self, analisis_id: str) -> list[Hallazgo]:
         docs = self._col.find({"analisisId": analisis_id})
         return [Hallazgo(
-            analisis_id=d["analisisId"],
-            filepath=d["filepath"],
-            severidad=d["severidad"],
-            titulo=d["titulo"],
-            descripcion=d["descripcion"],
-            mitigacion=d["mitigacion"],
-            ubicacion=d["ubicacion"],
-            cve_cwe=d["cve_cwe"],
+            analisis_id=d.get("analisisId", ""),
+            filepath=d.get("filepath", ""),
+            severidad=d.get("severidad", "Media"),
+            titulo=d.get("titulo", ""),
+            descripcion=d.get("descripcion", ""),
+            mitigacion=d.get("mitigacion", ""),
+            ubicacion=d.get("ubicacion", ""),
+            cve_cwe=d.get("cve_cwe", "N/A"),
             raw_response=d.get("raw_response", ""),
         ) for d in docs]
 

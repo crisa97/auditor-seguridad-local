@@ -29,7 +29,7 @@ def _confirmar(prompt_msg, opciones_afirmativas, opciones_negativas):
 
 def signal_handler(sig, frame):
     print("\nInterrupcion detectada (Ctrl+C).")
-    afirmativas = ('s', 'si', 's')
+    afirmativas = ('s', 'si')
     negativas = ('n', 'no')
 
     if _confirmar("Desea cancelar el escaneo? (s/n): ", afirmativas, negativas):
@@ -41,10 +41,10 @@ def signal_handler(sig, frame):
         print("Continuando escaneo...")
 
 
-def submit_to_queue(project_path):
+def submit_to_queue(project_path, api_key="", servicio_url=""):
     try:
         from src.tasks.analysis_tasks import analizar_proyecto
-        task = analizar_proyecto.delay(project_path)
+        task = analizar_proyecto.delay(project_path, api_key=api_key, servicio_url=servicio_url)
         print(f"Analisis encolado exitosamente.")
         print(f"   Task ID: {task.id}")
         return task.id
@@ -141,6 +141,12 @@ Ejemplos:
     else:
         log.info("Sin API key - modo sin autenticacion.")
 
+    if args.update_nvd:
+        print("Forzando actualizacion de la base NVD...")
+        from src.infrastructure.di import get_sincronizador_nvd
+        get_sincronizador_nvd().execute()
+        return
+
     if args.status:
         show_queue_status(args.status)
         return
@@ -157,7 +163,7 @@ Ejemplos:
         if not os.path.isdir(project_path):
             print(f"Error: la ruta '{project_path}' no es un directorio valido.")
             sys.exit(1)
-        submit_to_queue(project_path)
+        submit_to_queue(project_path, api_key=api_key, servicio_url=args.enviar or "")
         return
 
     if not args.project_path:

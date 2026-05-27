@@ -20,7 +20,7 @@ class Settings:
 
     # ChromaDB
     chroma_host: str = field(default_factory=lambda: os.getenv("CHROMA_HOST", "localhost"))
-    chroma_port: str = field(default_factory=lambda: os.getenv("CHROMA_PORT", "8001"))
+    chroma_port: int = field(default_factory=lambda: int(os.getenv("CHROMA_PORT", "8001")))
     chroma_nvd_collection: str = field(default_factory=lambda: os.getenv("CHROMA_NVD_COLLECTION", "nvd_vulnerabilities"))
     chroma_exploit_collection: str = field(default_factory=lambda: os.getenv("CHROMA_EXPLOIT_COLLECTION", "exploitdb_exploits"))
     chroma_page_size: int = field(default_factory=lambda: int(os.getenv("CHROMA_PAGE_SIZE", "1000")))
@@ -28,10 +28,11 @@ class Settings:
 
     # NVD API
     nvd_api_base_url: str = field(default_factory=lambda: os.getenv("NVD_API_BASE_URL", "https://services.nvd.nist.gov/rest/json/cves/2.0"))
+    nvd_api_key: str = field(default_factory=lambda: os.getenv("NVD_API_KEY", ""))
     nvd_days_back: int = field(default_factory=lambda: int(os.getenv("NVD_DAYS_BACK", "90")))
     nvd_page_size: int = field(default_factory=lambda: int(os.getenv("NVD_PAGE_SIZE", "2000")))
     nvd_api_timeout: int = field(default_factory=lambda: int(os.getenv("NVD_API_TIMEOUT", "30")))
-    nvd_api_delay: float = field(default_factory=lambda: float(os.getenv("NVD_API_DELAY", "0.6")))
+    nvd_api_delay: float = field(default_factory=lambda: float(os.getenv("NVD_API_DELAY", "6.0")))
     nvd_last_update_file: str = field(default_factory=lambda: os.getenv("NVD_LAST_UPDATE_FILE", "last_nvd_update.txt"))
     nvd_update_interval_days: int = field(default_factory=lambda: int(os.getenv("NVD_UPDATE_INTERVAL_DAYS", "7")))
 
@@ -46,14 +47,14 @@ class Settings:
     report_output_dir: str = field(default_factory=lambda: os.getenv("REPORT_OUTPUT_DIR", "reportes"))
 
     # MongoDB
-    mongo_uri: str = field(default_factory=lambda: os.getenv("MONGO_URI", "mongodb://admin:seguridad_local_pass@localhost:27017/vulnerabilidades?authSource=admin"))
+    mongo_uri: str = field(default_factory=lambda: os.getenv("MONGO_URI", "mongodb://localhost:27017/vulnerabilidades"))
     mongo_database: str = field(default_factory=lambda: os.getenv("MONGO_DATABASE_NAME", "vulnerabilidades"))
     mongo_timeout_ms: int = field(default_factory=lambda: int(os.getenv("MONGO_TIMEOUT_MS", "5000")))
 
     # ExploitDB
     exploitdb_repo_url: str = field(default_factory=lambda: os.getenv("EXPLOITDB_REPO_URL", "https://gitlab.com/exploit-database/exploitdb.git"))
     exploitdb_local_dir: str = field(default_factory=lambda: os.getenv("EXPLOITDB_LOCAL_DIR", "./exploitdb-local"))
-    exploit_batch_size: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_BATCH_SIZE", "10")))
+    exploit_batch_size: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_BATCH_SIZE", "100")))
     exploit_max_text_length: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_MAX_TEXT_LENGTH", "2000")))
 
     # NVD batch
@@ -64,8 +65,8 @@ class Settings:
     celery_result_backend: str = field(default_factory=lambda: os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0"))
 
     # Validacion / API Keys
-    db_url: str = field(default_factory=lambda: os.getenv("DB_URL", "postgresql://openwebui:openwebui_pass@localhost:5432/openwebui"))
-    api_key_salt: str = field(default_factory=lambda: os.getenv("API_KEY_SALT", "cambiar_esto_salt_seguro_por_favor"))
+    db_url: str = field(default_factory=lambda: os.getenv("DB_URL", "postgresql://localhost:5432/openwebui"))
+    api_key_salt: str = field(default_factory=lambda: os.getenv("API_KEY_SALT", "default_change_me_in_production"))
     validation_service_url: str = field(default_factory=lambda: os.getenv("VALIDATION_SERVICE_URL", "http://localhost:8000"))
 
     # Codigo fuente
