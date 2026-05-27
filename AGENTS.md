@@ -97,10 +97,22 @@
     │   ├── cli/
     │   │   ├── analizador_cli.py       # CLI principal (argparse)
     │   │   └── generar_apikey_cli.py   # CLI de generación de API keys
-    │   └── api/
-    │       ├── validation_api.py       # FastAPI app
-    │       └── routers/
-    │           └── rag.py              # POST /api/v1/rag/consultar
+    │   ├── api/
+    │   │   ├── validation_api.py       # FastAPI app
+    │   │   └── routers/
+    │   │       └── rag.py              # POST /api/v1/rag/consultar
+    │   └── dashboard/                  # Dashboard web service
+    │       ├── app.py                  # FastAPI app (montado en /dashboard/)
+    │       ├── auth.py                 # JWT auth + login/register
+    │       ├── middleware.py           # Auth middleware con roles
+    │       ├── routers/
+    │       │   ├── dashboard.py        # GET stats, analisis, hallazgos, vulnerabilidades
+    │       │   └── apikeys.py          # POST /apikeys
+    │       └── static/                 # Frontend SPA (HTML+CSS+JS vanilla)
+    │           ├── index.html
+    │           ├── login.html
+    │           ├── css/style.css
+    │           └── js/{api,auth,admin,user}.js
     │
     └── tasks/                   # Tareas Celery
         ├── celery_app.py        # Configuración de Celery
@@ -199,6 +211,7 @@ Ver `.env.example` para lista completa.
 | redis | 6379 | Broker de Celery |
 | celery-worker | — | Procesa tareas asíncronas |
 | validation-service | 8000 | API FastAPI (2 réplicas) |
+| dashboard | 8001 | Dashboard web (estadísticas + API keys) |
 | open-webui | 3000 | Interfaz web LLM |
 
 ---
@@ -209,6 +222,14 @@ Ver `.env.example` para lista completa.
 |---|---|---|
 | GET | `/api/v1/health` | Health check |
 | POST | `/api/v1/rag/consultar` | Consulta RAG con validación de API key + afirmaciones |
+| POST | `/api/v2/auth/login` | Login dashboard (JWT) |
+| POST | `/api/v2/auth/register` | Registrar usuario (solo admin) |
+| POST | `/api/v2/auth/refresh` | Refrescar JWT |
+| GET | `/api/v2/dashboard/stats` | Estadísticas globales (admin) |
+| GET | `/api/v2/dashboard/analisis` | Lista de análisis (admin) |
+| GET | `/api/v2/dashboard/hallazgos` | Fallos de seguridad (admin + usuario) |
+| GET | `/api/v2/dashboard/vulnerabilidades` | CVEs indexadas (admin) |
+| POST | `/api/v2/apikeys` | Crear API key para CLI (usuario + admin) |
 
 ---
 
@@ -224,6 +245,7 @@ Ver `.env.example` para lista completa.
 - `conocimiento_validado`: `{ id, texto_afirmacion (hash index), es_verdadero, fuente, fecha_validacion }`
 - `pendiente_validacion`: `{ id, texto_afirmacion, consulta_original, modelo_respuesta, revisado }`
 - `api_keys`: `{ id, key_hash (unique, hash index), key_prefix, nombre_cliente, fecha_expiracion, activa, permisos }`
+- `users`: `{ id, email (unique), password_hash, nombre, rol (admin|usuario), activo, ultimo_login }`
 
 ---
 

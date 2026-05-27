@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';">
+    <title>Dashboard - Seguridad Local</title>
+    <link rel="stylesheet" href="/dashboard/css/style.css">
+</head>
+<body>
+    <div class="app-header">
+        <h1 id="dashboard-title">Dashboard de Seguridad</h1>
+        <div class="header-right">
+            <span class="user-badge" id="user-name">---</span>
+            <span class="rol-badge" id="user-rol">---</span>
+            <button class="btn btn-danger btn-sm" id="btn-logout">Cerrar Sesión</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <div>Cargando dashboard...</div>
+        </div>
+
+        <!-- Stats (admin only) -->
+        <div id="admin-only-sections" style="display:none;">
+            <div class="stats-grid" id="stats-container">
+                <div class="loading">Cargando estadísticas...</div>
+            </div>
+
+            <!-- Últimos análisis -->
+            <div class="table-container">
+                <div class="table-header">
+                    <h2>Últimos Análisis</h2>
+                    <span class="subtitle">Últimos 10 análisis realizados</span>
+                </div>
+                <table id="analisis-table">
+                    <thead>
+                        <tr>
+                            <th>Proyecto</th>
+                            <th>Fecha</th>
+                            <th>Estado</th>
+                            <th>Archivos</th>
+                            <th>Reporte</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="6" class="text-muted">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Vulnerabilidades (CVE) -->
+            <div class="table-container">
+                <div class="table-header">
+                    <h2>Vulnerabilidades (CVEs)</h2>
+                    <span class="subtitle">Últimas vulnerabilidades indexadas en MongoDB</span>
+                </div>
+                <table id="vulnerabilidades-table">
+                    <thead>
+                        <tr>
+                            <th>CVE ID</th>
+                            <th>Descripción</th>
+                            <th>Severidad</th>
+                            <th>Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="4" class="text-muted">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Hallazgos (both roles) -->
+        <div id="user-only-sections" style="display:none;">
+            <div class="table-container">
+                <div class="table-header">
+                    <h2>Fallos de Seguridad Detectados</h2>
+                    <div class="filters">
+                        <select id="filter-severidad">
+                            <option value="">Todas las severidades</option>
+                            <option value="Crítica">Crítica</option>
+                            <option value="Alta">Alta</option>
+                            <option value="Media">Media</option>
+                            <option value="Baja">Baja</option>
+                        </select>
+                        <button class="btn btn-outline btn-sm" id="btn-filter">Filtrar</button>
+                    </div>
+                </div>
+                <table id="hallazgos-table">
+                    <thead>
+                        <tr>
+                            <th>Archivo</th>
+                            <th>Severidad</th>
+                            <th>Título</th>
+                            <th>Descripción</th>
+                            <th>Mitigación</th>
+                            <th id="cve-header" style="display:none;">CVE/CWE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="6" class="text-muted">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Crear API Key -->
+            <div class="card" id="apikey-section">
+                <h2>Crear API Key para el CLI</h2>
+                <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">
+                    Genera una API key para usar el analizador desde la línea de comandos (<code>analizador_rag_cli.py</code>).
+                </p>
+                <form id="apikey-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="key-cliente">Nombre del Cliente</label>
+                            <input type="text" id="key-cliente" required placeholder="Ej: equipo-dev">
+                        </div>
+                        <div class="form-group">
+                            <label for="key-permisos">Permisos</label>
+                            <select id="key-permisos">
+                                <option value="rag:leer">rag:leer</option>
+                                <option value="rag:leer,rag:escribir">rag:leer,rag:escribir</option>
+                                <option value="rag:*">rag:*</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="key-dias">Validez (días)</label>
+                            <input type="number" id="key-dias" value="365" min="1" max="3650">
+                        </div>
+                        <div class="form-group">
+                            <button type="submit" class="btn btn-primary" id="btn-generate-key">Generar API Key</button>
+                        </div>
+                    </div>
+                </form>
+                <div class="api-key-display" id="api-key-display"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/dashboard/js/api.js"></script>
+    <script src="/dashboard/js/auth.js"></script>
+    <script src="/dashboard/js/admin.js"></script>
+    <script src="/dashboard/js/user.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>

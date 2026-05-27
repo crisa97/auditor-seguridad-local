@@ -141,6 +141,25 @@ services:
     deploy:
       replicas: 1
 
+  # ── Dashboard Service (frontend web) ──────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      - postgres
+      - mongodb
+    environment:
+      - DB_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
+      - MONGO_URI=mongodb://admin:seguridad_local_pass@mongodb:27017/vulnerabilidades?authSource=admin
+      - API_KEY_SALT=${API_KEY_SALT:-cambiar_esto_salt_seguro_por_favor}
+      - JWT_SECRET=${JWT_SECRET:-cambiar_esto_jwt_secret}
+      - CORS_ORIGINS=http://localhost:3000,https://seguridad.local
+
   # ── Open WebUI ────────────────────────────────────
   open-webui:
     build:
