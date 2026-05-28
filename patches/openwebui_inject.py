@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -15,6 +16,11 @@ from validador import (
 from config import API_KEY_SALT
 
 log = logging.getLogger("openwebui_middleware")
+
+
+def _redact(value: str, max_len: int = 8) -> str:
+    h = hashlib.sha256(value.encode()).hexdigest()
+    return f"sha256:{h[:max_len]}..."
 
 ENRICH_URL = os.getenv("ENRICH_URL", "http://validation-service:8000/api/v1/rag/enrichir")
 ENRICH_TIMEOUT = int(os.getenv("ENRICH_TIMEOUT", "120"))
@@ -69,8 +75,8 @@ async def _fetch_rag_context(texto: str, api_key: str) -> str | None:
             log.warning("RAG enrich: servicios vectoriales no disponibles")
         else:
             log.warning("RAG enrich: HTTP %d", e.code)
-    except Exception as e:
-        log.warning("RAG enrich error: %s", e)
+    except Exception:
+        log.warning("RAG enrich error (detalle omitido)")
     return None
 
 
@@ -91,7 +97,10 @@ async def validation_middleware(request, call_next):
         es_valida, msg, datos = validar_api_key(api_key)
         if not es_valida:
             from starlette.responses import JSONResponse
-            log.warning("API key invalida: %s", msg)
+            if datos and "nombre_cliente" in datos:
+                log.warning("API key invalida para cliente: %s", _redact(datos["nombre_cliente"]))
+            else:
+                log.warning("API key invalida (no registrada)")
             return JSONResponse(status_code=401, content={"detail": msg})
     else:
         # Web UI: usar token interno para enrichment
@@ -151,8 +160,8 @@ async def validation_middleware(request, call_next):
                 request._body = json.dumps(body).encode()
                 if hasattr(request, "_json"):
                     del request._json
-        except Exception as e:
-            log.warning("Error en enrichment RAG (continuando sin contexto): %s", e)
+        except Exception:
+            log.warning("Error en enrichment RAG (continuando sin contexto)")
 
     return await call_next(request)
 
