@@ -182,6 +182,24 @@ class IndexarExploitDb:
             print("Actualizando repositorio local de ExploitDB...")
             subprocess.run(["git", "-C", settings.exploitdb_local_dir, "pull"], check=True)
 
+    TEXT_EXTENSIONS = frozenset({
+        ".py", ".rb", ".php", ".pl", ".pm", ".c", ".cpp", ".h", ".hpp",
+        ".java", ".js", ".ts", ".go", ".rs", ".swift", ".kt", ".scala",
+        ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+        ".txt", ".md", ".rst", ".html", ".htm", ".xml", ".json", ".yaml",
+        ".yml", ".toml", ".ini", ".cfg", ".conf", ".env",
+        ".sql", ".css", ".scss", ".less", ".vue", ".jsx", ".tsx",
+        ".asm", ".s", ".lua", ".tcl", ".erl", ".hrl", ".ex", ".exs",
+        ".clj", ".cljs", ".edn", ".coffee", ".dart", ".jl",
+        ".cs", ".fs", ".fsx", ".vb", ".vbs",
+        ".r", ".rmd", ".m", ".mm",
+        ".gradle", ".maven", ".pom", ".sbt", ".cabal",
+        ".cmake", ".mk", ".makefile", ".dockerfile",
+        ".htaccess", ".htpasswd",
+        ".csv", ".tsv", ".log",
+        ".tex", ".bib",
+    })
+
     def _parse_files(self) -> list[dict]:
         exploits_dir = os.path.join(settings.exploitdb_local_dir, "exploits")
         if not os.path.isdir(exploits_dir):
@@ -190,6 +208,10 @@ class IndexarExploitDb:
         documents: list[dict] = []
         for root, dirs, files in os.walk(exploits_dir):
             for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext not in self.TEXT_EXTENSIONS:
+                    logger.debug("Saltando archivo binario/sin texto: %s", file)
+                    continue
                 path = os.path.join(root, file)
                 try:
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:

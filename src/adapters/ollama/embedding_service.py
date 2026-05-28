@@ -17,11 +17,25 @@ class OllamaEmbeddingService(IEmbeddingService):
             return result[0]
         return None
 
+    @staticmethod
+    def _is_binary(t: str) -> bool:
+        if not t:
+            return True
+        suspicious = sum(
+            1 for c in t
+            if c < " " and c not in "\n\r\t"
+            or c == "\ufffd"
+            or c in "\u0000\u0080\u009f\u00ad"
+        )
+        return suspicious / len(t) > 0.05
+
     def _clean_text(self, t: str) -> str:
         t = t.replace("\x00", "")
         t = "".join(c if c >= " " or c in "\n\r\t" else " " for c in t)
-        t = t[:4000]
-        return t.strip()
+        t = t[:4000].strip()
+        if self._is_binary(t):
+            return ""
+        return t
 
     def _is_context_error(self, e: Exception) -> bool:
         """Detecta si el error es por exceder el contexto de tokens."""
