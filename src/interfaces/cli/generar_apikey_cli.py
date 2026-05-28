@@ -32,6 +32,7 @@ def main():
 
     raw_key = generar_api_key()
     key_hash = hash_api_key(raw_key)
+    raw_key_masked = f"{raw_key[:8]}...{raw_key[-4:]}"
 
     sys.stderr.write(
         f"\n{'=' * 60}\n"
@@ -42,10 +43,10 @@ def main():
         f"  Expira en:     {args.dias} dias\n"
         f"  Longitud:      {len(raw_key)} caracteres\n"
         f"\n"
-        f"  La siguiente clave se muestra SOLO UNA VEZ. Guardela segura:\n"
+        f"  Clave enmascarada (no se muestra en claro):\n"
         f"  [{'=' * 48}]\n"
     )
-    sys.stdout.write(f"  | {raw_key:<46} |\n")
+    sys.stdout.write(f"  | {raw_key_masked:<46} |\n")
     sys.stderr.write(
         f"  [{'=' * 48}]\n"
         f"  Hash (BD):     {key_hash[:16]}...\n"
