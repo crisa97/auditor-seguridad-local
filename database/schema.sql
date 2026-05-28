@@ -69,4 +69,26 @@ CREATE INDEX IF NOT EXISTS idx_apikey_activa
 COMMENT ON TABLE api_keys IS
     'API keys para autenticación de clientes externos. Se almacena solo el hash.';
 
+-- 4. Usuarios del dashboard web
+CREATE TABLE IF NOT EXISTS users (
+    id              SERIAL PRIMARY KEY,
+    email           VARCHAR(255) NOT NULL UNIQUE,
+    password_hash   VARCHAR(255) NOT NULL,
+    nombre          VARCHAR(255) NOT NULL,
+    rol             VARCHAR(20) NOT NULL DEFAULT 'usuario'
+                    CHECK (rol IN ('admin', 'usuario')),
+    activo          BOOLEAN DEFAULT TRUE,
+    creado_en       TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    ultimo_login    TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email
+    ON users (email);
+
+CREATE INDEX IF NOT EXISTS idx_users_rol
+    ON users (rol) WHERE activo = TRUE;
+
+COMMENT ON TABLE users IS
+    'Usuarios del dashboard web con roles admin/usuario.';
+
 COMMIT;
