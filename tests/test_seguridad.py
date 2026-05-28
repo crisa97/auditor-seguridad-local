@@ -12,8 +12,14 @@ import pytest
 # ── Helper: _redact de openwebui_inject ──────────────────────────────────────
 
 def _redact(value: str, max_len: int = 8) -> str:
-    h = hashlib.sha256(value.encode()).hexdigest()
-    return f"sha256:{h[:max_len]}..."
+    h = hashlib.pbkdf2_hmac(
+        'sha256',
+        value.encode(),
+        salt=b'redact_salt',
+        iterations=100000,
+        dklen=16,
+    )
+    return f"pbkdf2:{h.hex()[:max_len]}..."
 
 
 class TestRedactHelper:
@@ -22,15 +28,40 @@ class TestRedactHelper:
         result = _redact(original)
         assert original not in result
 
-    def test_redact_incluye_prefijo_sha256(self):
+    def test_redact_incluye_prefijo_pbkdf2(self):
         result = _redact("test")
-        assert result.startswith("sha256:")
+        assert result.startswith("pbkdf2:")
 
     def test_redact_mismo_input_mismo_output(self):
         assert _redact("foo") == _redact("foo")
 
     def test_redact_distinto_input_distinto_output(self):
         assert _redact("foo") != _redact("bar")
+
+    def test_redact_usa_pbkdf2_no_sha256_plano(self):
+        result = _redact("sensitive-data")
+        assert result.startswith("pbkdf2:")
+        assert not result.startswith("sha256:")
+
+
+# ── Hash fuerte: verificar que no se usen algoritmos débiles ────────────────
+
+class TestStrongHash:
+    def test_redact_no_usa_md5_ni_sha1(self):
+        import os
+        inject_path = os.path.join(os.path.dirname(__file__), "..", "patches", "openwebui_inject.py")
+        with open(inject_path) as f:
+            content = f.read()
+        assert "hashlib.md5" not in content
+        assert "hashlib.sha1" not in content
+
+    def test_redact_usa_pbkdf2(self):
+        import os
+        inject_path = os.path.join(os.path.dirname(__file__), "..", "patches", "openwebui_inject.py")
+        with open(inject_path) as f:
+            content = f.read()
+        assert "hashlib.pbkdf2_hmac" in content
+        assert "iterations" in content
 
 
 # ── Logging: no exponer información sensible ─────────────────────────────────
