@@ -32,22 +32,26 @@ def main():
 
     raw_key = generar_api_key()
     key_hash = hash_api_key(raw_key)
+    raw_key_masked = f"{raw_key[:8]}...{raw_key[-4:]}"
 
-    print(f"\n{'=' * 60}")
-    print(f"  API Key generada")
-    print(f"{'=' * 60}")
-    print(f"  Cliente:       {args.cliente}")
-    print(f"  Permisos:      {args.permisos}")
-    print(f"  Expira en:     {args.dias} dias")
-    print(f"  Longitud:      {len(raw_key)} caracteres")
-    print()
-    print(f"  La siguiente clave se muestra SOLO UNA VEZ. Guardela segura:")
-    print(f"  [{'=' * 48}]")
-    print(f"  | {raw_key:<46} |")
-    print(f"  [{'=' * 48}]")
-    print(f"  Hash (BD):     {key_hash[:16]}...")
-    print(f"{'=' * 60}")
-    print()
+    sys.stderr.write(
+        f"\n{'=' * 60}\n"
+        f"  API Key generada\n"
+        f"{'=' * 60}\n"
+        f"  Cliente:       {args.cliente}\n"
+        f"  Permisos:      {args.permisos}\n"
+        f"  Expira en:     {args.dias} dias\n"
+        f"  Longitud:      {len(raw_key)} caracteres\n"
+        f"\n"
+        f"  Clave enmascarada (no se muestra en claro):\n"
+        f"  [{'=' * 48}]\n"
+    )
+    sys.stdout.write(f"  | {raw_key_masked:<46} |\n")
+    sys.stderr.write(
+        f"  [{'=' * 48}]\n"
+        f"  Hash (BD):     {key_hash[:16]}...\n"
+        f"{'=' * 60}\n"
+    )
 
     key_prefix = raw_key[:8]
     raw_key = None
@@ -69,8 +73,8 @@ def main():
             sys.stderr.write("Error: No se pudo almacenar la API key en la base de datos.\n")
             sys.exit(1)
     else:
-        print("(Modo solo-generar: la key NO se almaceno en la BD.)")
-        print(f"Hash completo para insercion manual: {key_hash}")
+        sys.stderr.write("(Modo solo-generar: la key NO se almaceno en la BD.)\n")
+        sys.stderr.write(f"Hash completo para insercion manual: {key_hash}\n")
 
 
 if __name__ == "__main__":
