@@ -33,7 +33,7 @@ def main():
     raw_key = generar_api_key()
     key_hash = hash_api_key(raw_key)
 
-    key_box = (
+    sys.stderr.write(
         f"\n{'=' * 60}\n"
         f"  API Key generada\n"
         f"{'=' * 60}\n"
@@ -44,12 +44,13 @@ def main():
         f"\n"
         f"  La siguiente clave se muestra SOLO UNA VEZ. Guardela segura:\n"
         f"  [{'=' * 48}]\n"
-        f"  | {raw_key:<46} |\n"
+    )
+    sys.stdout.write(f"  | {raw_key:<46} |\n")
+    sys.stderr.write(
         f"  [{'=' * 48}]\n"
         f"  Hash (BD):     {key_hash[:16]}...\n"
         f"{'=' * 60}\n"
     )
-    sys.stderr.write(key_box)
 
     key_prefix = raw_key[:8]
     raw_key = None
