@@ -33,14 +33,13 @@ def main():
     raw_key = generar_api_key()
     key_hash = hash_api_key(raw_key)
 
-    prefix = raw_key[:8]
     sys.stdout.write(f"\n{'=' * 60}\n")
     sys.stdout.write(f"  API Key generada\n")
     sys.stdout.write(f"{'=' * 60}\n")
     sys.stdout.write(f"  Cliente:       {args.cliente}\n")
     sys.stdout.write(f"  Permisos:      {args.permisos}\n")
     sys.stdout.write(f"  Expira en:     {args.dias} dias\n")
-    sys.stdout.write(f"  Prefix (id):   {prefix}...\n")
+    sys.stdout.write(f"  Longitud:      {len(raw_key)} caracteres (43 caracteres)\n")
     sys.stdout.write("\n")
     sys.stdout.write(f"  La siguiente clave se muestra SOLO UNA VEZ. Guardala segura:\n")
     sys.stdout.write(f"  [{'=' * 48}]\n")
@@ -54,7 +53,7 @@ def main():
         repo = PostgresApiKeyRepository()
         api_key = ApiKey(
             key_hash=key_hash,
-            key_prefix=prefix,
+            key_prefix=raw_key[:8],
             nombre_cliente=args.cliente,
             permisos=args.permisos,
             fecha_expiracion=datetime.now(timezone.utc) + timedelta(days=args.dias),
