@@ -63,8 +63,8 @@ def main():
             repo.store(api_key)
             log.info("API key almacenada para '%s' (expira: %s)", args.cliente,
                      api_key.fecha_expiracion.date())
-        except Exception as e:
-            print(f"La key se genero pero NO se pudo almacenar en la BD: {e}")
+        except Exception:
+            sys.stderr.write("Error: No se pudo almacenar la API key en la base de datos.\n")
             sys.exit(1)
     else:
         print("(Modo solo-generar: la key NO se almaceno en la BD.)")

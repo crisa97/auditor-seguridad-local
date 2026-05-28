@@ -101,7 +101,7 @@ class TestSqlInjection:
         app_path = os.path.join(os.path.dirname(__file__), "..", "test", "app.js")
         with open(app_path) as f:
             content = f.read()
-        assert re.search(r"^\d+$", content, re.MULTILINE) or "/^\\d+$/" in content
+        assert "Number.isFinite(id)" in content or "!/^\\d+$/.test(id)" in content
 
 
 # ── Excepciones: no devolver HTML con mensajes internos ──────────────────────

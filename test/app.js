@@ -6,7 +6,6 @@ const sqlite3 = require('sqlite3').verbose()
 const bodyParser = require('body-parser')
 const jwt = require('jsonwebtoken')
 const path = require('path')
-const fs = require('fs')
 
 const app = express()
 const PORT = 3000
@@ -19,7 +18,7 @@ const limiter15 = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
-  legacyHeaders: false,
+  legacyHeaders: true,
   message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
 })
 app.use('/login', limiter15)
@@ -141,9 +140,10 @@ app.get('/notes', (req, res) => {
 
 // ——— GET /user/:id (SQL injection fix + rate limit) ———
 app.get('/user/:id', (req, res) => {
-  const id = req.params.id
+  const rawId = req.params.id
+  const id = parseInt(rawId, 10)
 
-  if (!/^\d+$/.test(id)) {
+  if (!Number.isFinite(id) || id < 0) {
     return res.status(400).json({ error: 'ID inválido' })
   }
 

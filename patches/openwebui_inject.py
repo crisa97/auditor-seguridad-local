@@ -38,13 +38,13 @@ def is_active():
 def activate():
     global _middleware_active
     _middleware_active = True
-    log.info("Middleware de validacion activado.")
+    log.debug("Middleware de validacion activado.")
 
 
 def deactivate():
     global _middleware_active
     _middleware_active = False
-    log.info("Middleware de validacion desactivado.")
+    log.debug("Middleware de validacion desactivado.")
 
 
 async def _fetch_rag_context(texto: str, api_key: str) -> str | None:
@@ -68,7 +68,7 @@ async def _fetch_rag_context(texto: str, api_key: str) -> str | None:
         data = json.loads(resp.read().decode())
         contexto = data.get("contexto", "")
         if contexto:
-            log.info("RAG enrichment: %d CVEs, %d Exploits", data.get("total_cves", 0), data.get("total_exploits", 0))
+            log.debug("RAG enrichment: %d CVEs, %d Exploits", data.get("total_cves", 0), data.get("total_exploits", 0))
             return contexto
     except urllib.error.HTTPError as e:
         if e.code == 502:
@@ -130,7 +130,7 @@ async def validation_middleware(request, call_next):
             "identificada como falsos positivos:\n" +
             "\n".join(f"  - {b.mensaje}" for b in bloqueos)
         )
-        log.warning("Consulta bloqueada por %d afirmaciones falsas", len(bloqueos))
+        log.info("Consulta bloqueada por %d afirmaciones falsas", len(bloqueos))
         return JSONResponse(
             status_code=403,
             content={"detail": mensaje, "bloqueos": [b.__dict__ for b in bloqueos]},
