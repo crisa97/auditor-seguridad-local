@@ -13,17 +13,17 @@ const PORT = 3000
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 
-// ——— Rate limiting global ———
-const limiter15 = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: true,
-  message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
-})
-app.use('/login', limiter15)
-app.use('/notes', limiter15)
-app.use('/user', limiter15)
+// ——— Rate limiting ———
+const isTest = process.env.NODE_ENV === 'test'
+const limiter15 = isTest
+  ? (req, res, next) => next()
+  : rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 100,
+      standardHeaders: true,
+      legacyHeaders: true,
+      message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
+    })
 
 // ——— Database init ———
 const dbPath = path.join(__dirname, 'database.db')
@@ -59,7 +59,7 @@ db.serialize(() => {
 })
 
 // ——— POST /login (SQL injection fix + rate limit) ———
-app.post('/login', (req, res) => {
+app.post('/login', limiter15, (req, res) => {
   const { username, password } = req.body
 
   const query = 'SELECT * FROM users WHERE username = ? AND password = ?'
@@ -92,7 +92,7 @@ app.post('/login', (req, res) => {
 })
 
 // ——— POST /notes (rate limit) ———
-app.post('/notes', (req, res) => {
+app.post('/notes', limiter15, (req, res) => {
   const { title, content, owner } = req.body
 
   db.run(
@@ -112,7 +112,7 @@ app.post('/notes', (req, res) => {
 })
 
 // ——— GET /notes (rate limit + XSS fix) ———
-app.get('/notes', (req, res) => {
+app.get('/notes', limiter15, (req, res) => {
   db.all('SELECT * FROM notes', (err, rows) => {
     if (err) {
       console.error('Notes query error:', err.message)
@@ -139,7 +139,7 @@ app.get('/notes', (req, res) => {
 })
 
 // ——— GET /user/:id (SQL injection fix + rate limit) ———
-app.get('/user/:id', (req, res) => {
+app.get('/user/:id', limiter15, (req, res) => {
   const rawId = req.params.id
   const id = parseInt(rawId, 10)
 

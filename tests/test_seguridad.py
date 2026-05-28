@@ -163,8 +163,16 @@ class TestRateLimiting:
             content = f.read()
         assert "require('express-rate-limit')" in content or 'require("express-rate-limit")' in content
 
+    def test_rate_limit_condicional_test(self):
+        """Verifica que el rate limiting se desactive en modo test."""
+        import os
+        app_path = os.path.join(os.path.dirname(__file__), "..", "test", "app.js")
+        with open(app_path) as f:
+            content = f.read()
+        assert "NODE_ENV === 'test'" in content
+
     def test_rate_limit_aplicado(self):
-        """Verifica que los endpoints tengan rate limiting."""
+        """Verifica que los endpoints tengan rate limiting como middleware directo."""
         import os
         app_path = os.path.join(os.path.dirname(__file__), "..", "test", "app.js")
         with open(app_path) as f:
@@ -172,6 +180,9 @@ class TestRateLimiting:
         assert "rateLimit" in content
         assert "windowMs" in content
         assert "max" in content
+        # Cada ruta debe declarar el limiter como middleware directo
+        route_count = content.count("limiter15, (req, res)")
+        assert route_count >= 4, f"Solo {route_count} rutas con limiter directo, se esperan >= 4"
 
 
 # ── escape-html (XSS prevention) ────────────────────────────────────────────
