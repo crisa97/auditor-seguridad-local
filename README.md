@@ -238,6 +238,22 @@ nginx/                   → openwebui.conf (SSL + rate limiting)
 
 ## Correcciones de Seguridad (CodeQL)
 
+### 5. Use of a broken or weak cryptographic hashing algorithm – Alta (NUEVA)
+**Archivo:** `patches/openwebui_inject.py` línea 22
+
+**Problema:** La función `_redact()` usaba `hashlib.sha256()` sin sal ni iteraciones para enmascarar datos sensibles en logs. CodeQL considera esto insuficiente para datos sensibles.
+
+**Mitigación:**
+- Reemplazado por `hashlib.pbkdf2_hmac('sha256', ..., salt=b'redact_salt', iterations=100000, dklen=16)`
+- El hash truncado ahora usa prefijo `pbkdf2:` en lugar de `sha256:`
+- La función solo se usa para **redacción en logs** (no para almacenamiento de credenciales); el almacenamiento real de API keys ya usa PBKDF2-SHA256 con 600k iteraciones en `apikey_repository.py`
+- No hay migración de datos porque `_redact()` no persiste valores en BD
+
+**Verificación:**
+```bash
+python3 -m pytest tests/test_seguridad.py::TestStrongHash -v
+```
+
 ### 1. Clear-text logging of sensitive information
 **Archivos:** `patches/openwebui_inject.py`, `src/interfaces/cli/generar_apikey_cli.py`, `test/app.js`
 

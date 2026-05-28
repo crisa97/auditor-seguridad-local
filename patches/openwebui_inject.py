@@ -19,8 +19,14 @@ log = logging.getLogger("openwebui_middleware")
 
 
 def _redact(value: str, max_len: int = 8) -> str:
-    h = hashlib.sha256(value.encode()).hexdigest()
-    return f"sha256:{h[:max_len]}..."
+    h = hashlib.pbkdf2_hmac(
+        'sha256',
+        value.encode(),
+        salt=b'redact_salt',
+        iterations=100000,
+        dklen=16,
+    )
+    return f"pbkdf2:{h.hex()[:max_len]}..."
 
 ENRICH_URL = os.getenv("ENRICH_URL", "http://validation-service:8000/api/v1/rag/enrichir")
 ENRICH_TIMEOUT = int(os.getenv("ENRICH_TIMEOUT", "120"))
