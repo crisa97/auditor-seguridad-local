@@ -245,9 +245,10 @@ nginx/                   → openwebui.conf (SSL + rate limiting)
 
 **Mitigación:**
 - Las API keys en logs se reemplazan por `sha256:<hash_truncado>` mediante la función `_redact()`
-- `generar_apikey_cli.py` usa `sys.stdout.write()` en lugar de `print()` para mostrar la key una sola vez; los logs del módulo nunca incluyen la key
+- `generar_apikey_cli.py` usa `sys.stdout.write()` en lugar de `print()` para mostrar la key una sola vez; los logs del módulo nunca incluyen la key; los mensajes de error usan `sys.stderr.write()` sin detalle de la excepción
 - `test/app.js`: `console.log(query)` reemplazado por mensaje genérico sin credenciales
 - Excepciones en `openwebui_inject.py` se registran sin el detalle del error para evitar fugas
+- Niveles de log ajustados: operaciones internas a `DEBUG`, eventos relevantes a `INFO`, errores a `WARNING`
 
 **Verificación:**
 ```bash
@@ -262,7 +263,7 @@ python3 -m pytest tests/test_seguridad.py::TestSensitiveLogging -v
 **Mitigación:**
 - Todas las consultas convertidas a **prepared statements** con placeholders `?`
 - Parámetros pasados como arreglo separado: `db.get(query, [username, password], ...)`
-- Validación de tipo en `/user/:id`: solo se aceptan IDs numéricos (`/^\d+$/`)
+- Validación de tipo en `/user/:id`: se usa `parseInt(rawId, 10)` + `Number.isFinite(id)`
 
 **Verificación:**
 ```bash
@@ -277,7 +278,7 @@ python3 -m pytest tests/test_seguridad.py::TestSqlInjection -v
 **Mitigación:**
 - Dependencia `express-rate-limit` añadida a `package.json`
 - Límite: **100 peticiones por 15 minutos** por IP en todos los endpoints
-- Cabeceras `RateLimit-*` estándar incluidas (`standardHeaders: true`)
+- Cabeceras `RateLimit-*` y `X-RateLimit-*` incluidas (`standardHeaders: true`, `legacyHeaders: true`)
 
 **Verificación:**
 ```bash
@@ -291,13 +292,29 @@ python3 -m pytest tests/test_seguridad.py::TestRateLimiting -v
 
 **Mitigación:**
 - Los errores internos devuelven `{ "error": "Error interno del servidor" }` (JSON genérico)
-- Los errores reales se registran en el servidor con `console.error()`
-- Las respuestas HTML escapan el contenido con `escape-html` para prevenir XSS
+- Los errores reales se registran en el servidor con `console.error()`, nunca se envían al cliente
+- Las respuestas HTML escapan el contenido con `escape-html()` para prevenir XSS
+- Handler global de errores captura excepciones no manejadas y responde con JSON genérico
 
 **Verificación:**
 ```bash
 python3 -m pytest tests/test_seguridad.py::TestExceptionHandling -v
 ```
+
+### Configuración de rate limiting
+
+Los límites se configuran en `test/app.js` mediante `express-rate-limit`:
+
+```javascript
+const limiter15 = rateLimit({
+  windowMs: 15 * 60 * 1000,   // ventana de 15 minutos
+  max: 100,                     // máximo 100 peticiones
+  standardHeaders: true,        // RateLimit-* headers
+  legacyHeaders: true,          // X-RateLimit-* headers
+})
+```
+
+Para producción, ajustar `windowMs` y `max` según necesidades. No requiere variables de entorno adicionales.
 
 ### Pruebas completas
 
