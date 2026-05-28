@@ -1,7 +1,12 @@
+const crypto = require('crypto')
+const escapeHtml = require('escape-html')
 const express = require('express')
+const rateLimit = require('express-rate-limit')
 const sqlite3 = require('sqlite3').verbose()
 const bodyParser = require('body-parser')
 const jwt = require('jsonwebtoken')
+const path = require('path')
+const fs = require('fs')
 
 const app = express()
 const PORT = 3000
@@ -9,8 +14,21 @@ const PORT = 3000
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 
+// ——— Rate limiting global ———
+const limiter15 = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
+})
+app.use('/login', limiter15)
+app.use('/notes', limiter15)
+app.use('/user', limiter15)
 
-const db = new sqlite3.Database('./database.db')
+// ——— Database init ———
+const dbPath = path.join(__dirname, 'database.db')
+const db = new sqlite3.Database(dbPath)
 
 db.serialize(() => {
   db.run(`
@@ -31,26 +49,28 @@ db.serialize(() => {
     )
   `)
 
-  db.run(`
-    INSERT INTO users(username, password, role)
-    VALUES ('admin', 'admin123', 'admin')
-  `)
+  const stmt = db.prepare('SELECT COUNT(*) AS cnt FROM users WHERE username = ?')
+  stmt.get('admin', (err, row) => {
+    if (!err && row.cnt === 0) {
+      db.run("INSERT INTO users(username, password, role) VALUES (?, ?, ?)",
+        ['admin', 'admin123', 'admin'])
+    }
+  })
+  stmt.finalize()
 })
 
+// ——— POST /login (SQL injection fix + rate limit) ———
 app.post('/login', (req, res) => {
   const { username, password } = req.body
 
-  const query = `
-    SELECT * FROM users
-    WHERE username = '${username}'
-    AND password = '${password}'
-  `
+  const query = 'SELECT * FROM users WHERE username = ? AND password = ?'
+  const safePrefix = '[LOGIN QUERY redacted]'
+  console.log(safePrefix)
 
-  console.log(query)
-
-  db.get(query, (err, user) => {
+  db.get(query, [username, password], (err, user) => {
     if (err) {
-      return res.send(err.message)
+      console.error('Login query error:', err.message)
+      return res.status(500).json({ error: 'Error interno del servidor' })
     }
 
     if (!user) {
@@ -62,7 +82,7 @@ app.post('/login', (req, res) => {
         username: user.username,
         role: user.role
       },
-      'secret123'
+      process.env.JWT_SECRET || 'secret123'
     )
 
     res.json({
@@ -72,19 +92,16 @@ app.post('/login', (req, res) => {
   })
 })
 
-
+// ——— POST /notes (rate limit) ———
 app.post('/notes', (req, res) => {
   const { title, content, owner } = req.body
 
   db.run(
-    `
-      INSERT INTO notes(title, content, owner)
-      VALUES (?, ?, ?)
-    `,
+    'INSERT INTO notes(title, content, owner) VALUES (?, ?, ?)',
     [title, content, owner],
     function (err) {
       if (err) {
-        return res.send(err.message)
+        return res.status(500).json({ error: 'Error interno del servidor' })
       }
 
       res.json({
@@ -95,20 +112,25 @@ app.post('/notes', (req, res) => {
   )
 })
 
+// ——— GET /notes (rate limit + XSS fix) ———
 app.get('/notes', (req, res) => {
   db.all('SELECT * FROM notes', (err, rows) => {
     if (err) {
-      return res.send(err.message)
+      console.error('Notes query error:', err.message)
+      return res.status(500).json({ error: 'Error interno del servidor' })
     }
 
     let html = '<h1>Notas</h1>'
 
     rows.forEach(note => {
+      const safeTitle = escapeHtml(note.title || '')
+      const safeContent = escapeHtml(note.content || '')
+      const safeOwner = escapeHtml(note.owner || '')
       html += `
         <div style="border:1px solid #000;padding:10px;margin:10px;">
-          <h2>${note.title}</h2>
-          <p>${note.content}</p>
-          <small>${note.owner}</small>
+          <h2>${safeTitle}</h2>
+          <p>${safeContent}</p>
+          <small>${safeOwner}</small>
         </div>
       `
     })
@@ -117,15 +139,25 @@ app.get('/notes', (req, res) => {
   })
 })
 
-
+// ——— GET /user/:id (SQL injection fix + rate limit) ———
 app.get('/user/:id', (req, res) => {
   const id = req.params.id
 
+  if (!/^\d+$/.test(id)) {
+    return res.status(400).json({ error: 'ID inválido' })
+  }
+
   db.get(
-    `SELECT id, username, role FROM users WHERE id = ${id}`,
+    'SELECT id, username, role FROM users WHERE id = ?',
+    [id],
     (err, row) => {
       if (err) {
-        return res.send(err.message)
+        console.error('User query error:', err.message)
+        return res.status(500).json({ error: 'Error interno del servidor' })
+      }
+
+      if (!row) {
+        return res.status(404).json({ error: 'Usuario no encontrado' })
       }
 
       res.json(row)
@@ -133,7 +165,7 @@ app.get('/user/:id', (req, res) => {
   )
 })
 
-
+// ——— GET /admin ———
 app.get('/admin', (req, res) => {
   res.send(`
     <h1>Panel Admin</h1>
@@ -141,6 +173,11 @@ app.get('/admin', (req, res) => {
   `)
 })
 
+// ——— Error handler global genérico ———
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err.message)
+  res.status(500).json({ error: 'Error interno del servidor' })
+})
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`)

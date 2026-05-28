@@ -236,6 +236,81 @@ nginx/                   → openwebui.conf (SSL + rate limiting)
 
 ---
 
+## Correcciones de Seguridad (CodeQL)
+
+### 1. Clear-text logging of sensitive information
+**Archivos:** `patches/openwebui_inject.py`, `src/interfaces/cli/generar_apikey_cli.py`, `test/app.js`
+
+**Problema:** Los logs podían exponer API keys, contraseñas y consultas SQL completas.
+
+**Mitigación:**
+- Las API keys en logs se reemplazan por `sha256:<hash_truncado>` mediante la función `_redact()`
+- `generar_apikey_cli.py` usa `sys.stdout.write()` en lugar de `print()` para mostrar la key una sola vez; los logs del módulo nunca incluyen la key
+- `test/app.js`: `console.log(query)` reemplazado por mensaje genérico sin credenciales
+- Excepciones en `openwebui_inject.py` se registran sin el detalle del error para evitar fugas
+
+**Verificación:**
+```bash
+python3 -m pytest tests/test_seguridad.py::TestSensitiveLogging -v
+```
+
+### 2. SQL Injection
+**Archivo:** `test/app.js` (líneas 43-47 y 121-125)
+
+**Problema:** Las consultas SQL se construían con interpolación directa de strings (`... WHERE username = '${username}'`).
+
+**Mitigación:**
+- Todas las consultas convertidas a **prepared statements** con placeholders `?`
+- Parámetros pasados como arreglo separado: `db.get(query, [username, password], ...)`
+- Validación de tipo en `/user/:id`: solo se aceptan IDs numéricos (`/^\d+$/`)
+
+**Verificación:**
+```bash
+python3 -m pytest tests/test_seguridad.py::TestSqlInjection -v
+```
+
+### 3. Missing rate limiting
+**Archivo:** `test/app.js` (líneas 40, 76, 98, 121)
+
+**Problema:** Los endpoints `/login`, `/notes`, `/user/:id` no tenían límite de peticiones.
+
+**Mitigación:**
+- Dependencia `express-rate-limit` añadida a `package.json`
+- Límite: **100 peticiones por 15 minutos** por IP en todos los endpoints
+- Cabeceras `RateLimit-*` estándar incluidas (`standardHeaders: true`)
+
+**Verificación:**
+```bash
+python3 -m pytest tests/test_seguridad.py::TestRateLimiting -v
+```
+
+### 4. Exception text reinterpreted as HTML
+**Archivo:** `test/app.js` (líneas 53, 128)
+
+**Problema:** `res.send(err.message)` devolvía mensajes de error internos al cliente sin sanitizar.
+
+**Mitigación:**
+- Los errores internos devuelven `{ "error": "Error interno del servidor" }` (JSON genérico)
+- Los errores reales se registran en el servidor con `console.error()`
+- Las respuestas HTML escapan el contenido con `escape-html` para prevenir XSS
+
+**Verificación:**
+```bash
+python3 -m pytest tests/test_seguridad.py::TestExceptionHandling -v
+```
+
+### Pruebas completas
+
+```bash
+# Todas las pruebas (incluyendo seguridad)
+python3 -m pytest tests/ -v
+
+# Solo pruebas de seguridad
+python3 -m pytest tests/test_seguridad.py -v
+```
+
+---
+
 ## Licencia
 
 MIT
