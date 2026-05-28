@@ -59,6 +59,7 @@ async def _fetch_rag_context(texto: str, api_key: str) -> str | None:
         "api_key": api_key,
         "max_cves": int(os.getenv("RAG_MAX_CVES", "5")),
         "max_exploits": int(os.getenv("RAG_MAX_EXPLOITS", "5")),
+        "max_owasp": int(os.getenv("RAG_MAX_OWASP", "3")),
     }).encode()
     req = urllib.request.Request(
         ENRICH_URL,
@@ -74,7 +75,7 @@ async def _fetch_rag_context(texto: str, api_key: str) -> str | None:
         data = json.loads(resp.read().decode())
         contexto = data.get("contexto", "")
         if contexto:
-            log.debug("RAG enrichment: %d CVEs, %d Exploits", data.get("total_cves", 0), data.get("total_exploits", 0))
+            log.debug("RAG enrichment: %d CVEs, %d Exploits, %d OWASP", data.get("total_cves", 0), data.get("total_exploits", 0), data.get("total_owasp", 0))
             return contexto
     except urllib.error.HTTPError as e:
         if e.code == 502:

@@ -121,3 +121,17 @@ def get_indexador_exploitdb():
         embed=get_embedding_service(),
         vector_store=get_vector_store(),
     ))
+
+
+def get_owasp_top10_repository():
+    from src.adapters.mongodb.owasp_repository import MongoOwaspTop10Repository
+    return DIContainer.get("owasp_repo", MongoOwaspTop10Repository)
+
+
+def get_indexador_owasp_top10():
+    from src.application.sincronizador import IndexarOwaspTop10
+    return DIContainer.get("indexador_owasp_top10", lambda: IndexarOwaspTop10(
+        owasp_repo=get_owasp_top10_repository(),
+        embed=get_embedding_service(),
+        vector_store=get_vector_store(),
+    ))

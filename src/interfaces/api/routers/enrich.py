@@ -1,7 +1,5 @@
 import logging
 import os
-from typing import Optional
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -19,6 +17,7 @@ class EnrichRequest(BaseModel):
     api_key: str = Field(..., min_length=1, description="API key de usuario o token interno")
     max_cves: int = Field(default=5, ge=0, le=20, description="Maximo de CVEs a incluir (0 = ninguna)")
     max_exploits: int = Field(default=5, ge=0, le=20, description="Maximo de exploits a incluir (0 = ninguno)")
+    max_owasp: int = Field(default=3, ge=0, le=10, description="Maximo de docs OWASP Top 10 a incluir (0 = ninguno)")
 
 
 class EnrichResponse(BaseModel):
@@ -26,6 +25,7 @@ class EnrichResponse(BaseModel):
     fuentes: list[dict] = []
     total_cves: int = 0
     total_exploits: int = 0
+    total_owasp: int = 0
 
 
 def _autorizar(body: EnrichRequest):
@@ -60,6 +60,8 @@ def enrichir(body: EnrichRequest):
     cves_fuentes: list[dict] = []
     exploits_contexto: list[str] = []
     exploits_fuentes: list[dict] = []
+    owasp_contexto: list[str] = []
+    owasp_fuentes: list[dict] = []
 
     if body.max_cves > 0:
         try:
@@ -91,15 +93,33 @@ def enrichir(body: EnrichRequest):
         except Exception as e:
             log.warning("Error consultando ChromaDB (Exploits): %s", e)
 
+    if body.max_owasp > 0:
+        try:
+            owasp_docs = vector_store.query(
+                embeddings,
+                settings.chroma_owasp_collection,
+                n_results=body.max_owasp,
+            )
+            for doc in owasp_docs:
+                lines = doc.split("\n")
+                owasp_title = lines[0].replace("# ", "") if lines else "?"
+                owasp_contexto.append(doc)
+                owasp_fuentes.append({"id": owasp_title, "tipo": "owasp", "texto": doc[:200]})
+        except Exception as e:
+            log.warning("Error consultando ChromaDB (OWASP): %s", e)
+
     partes = []
     if cves_contexto:
         partes.append("VULNERABILIDADES RELEVANTES (CVE):\n" + "\n---\n".join(cves_contexto))
     if exploits_contexto:
         partes.append("EXPLOITS RELACIONADOS:\n" + "\n---\n".join(exploits_contexto))
+    if owasp_contexto:
+        partes.append("OWASP TOP 10 2025:\n" + "\n---\n".join(owasp_contexto))
 
     return EnrichResponse(
         contexto="\n\n".join(partes),
-        fuentes=cves_fuentes + exploits_fuentes,
+        fuentes=cves_fuentes + exploits_fuentes + owasp_fuentes,
         total_cves=len(cves_contexto),
         total_exploits=len(exploits_contexto),
+        total_owasp=len(owasp_contexto),
     )

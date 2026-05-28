@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from src.domain.models import Cve, Exploit, Hallazgo, Analisis, ApiKey, Afirmacion
+from src.domain.models import Cve, Exploit, Hallazgo, Analisis, ApiKey, Afirmacion, OwaspTop10Entry
 
 
 class ICveRepository(ABC):
@@ -69,6 +69,20 @@ class IApiKeyRepository(ABC):
 
     @abstractmethod
     def update_ultimo_uso(self, key_hash: str) -> None: ...
+
+
+class IOwaspTop10Repository(ABC):
+    @abstractmethod
+    def store(self, entry: OwaspTop10Entry) -> None: ...
+
+    @abstractmethod
+    def store_bulk(self, entries: list[OwaspTop10Entry]) -> int: ...
+
+    @abstractmethod
+    def get_all_ids(self) -> list[str]: ...
+
+    @abstractmethod
+    def get_by_chroma_ids(self, chroma_ids: list[str]) -> list[OwaspTop10Entry]: ...
 
 
 class IConocimientoRepository(ABC):

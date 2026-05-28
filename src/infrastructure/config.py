@@ -23,6 +23,7 @@ class Settings:
     chroma_port: int = field(default_factory=lambda: int(os.getenv("CHROMA_PORT", "8001")))
     chroma_nvd_collection: str = field(default_factory=lambda: os.getenv("CHROMA_NVD_COLLECTION", "nvd_vulnerabilities"))
     chroma_exploit_collection: str = field(default_factory=lambda: os.getenv("CHROMA_EXPLOIT_COLLECTION", "exploitdb_exploits"))
+    chroma_owasp_collection: str = field(default_factory=lambda: os.getenv("CHROMA_OWASP_COLLECTION", "owasp_top10_2025"))
     chroma_page_size: int = field(default_factory=lambda: int(os.getenv("CHROMA_PAGE_SIZE", "1000")))
     chroma_query_results: int = field(default_factory=lambda: int(os.getenv("CHROMA_QUERY_RESULTS", "3")))
 
@@ -56,6 +57,12 @@ class Settings:
     exploitdb_local_dir: str = field(default_factory=lambda: os.getenv("EXPLOITDB_LOCAL_DIR", "./exploitdb-local"))
     exploit_batch_size: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_BATCH_SIZE", "500")))
     exploit_max_text_length: int = field(default_factory=lambda: int(os.getenv("EXPLOIT_MAX_TEXT_LENGTH", "2000")))
+
+    # OWASP Top 10
+    owasp_repo_url: str = field(default_factory=lambda: os.getenv("OWASP_REPO_URL", "https://github.com/OWASP/Top10.git"))
+    owasp_local_dir: str = field(default_factory=lambda: os.getenv("OWASP_LOCAL_DIR", "./owasp-top10-local"))
+    owasp_batch_size: int = field(default_factory=lambda: int(os.getenv("OWASP_BATCH_SIZE", "16")))
+    owasp_max_text_length: int = field(default_factory=lambda: int(os.getenv("OWASP_MAX_TEXT_LENGTH", "50000")))
 
     # NVD batch
     nvd_batch_size: int = field(default_factory=lambda: int(os.getenv("NVD_BATCH_SIZE", "500")))

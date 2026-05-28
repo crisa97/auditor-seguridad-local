@@ -8,8 +8,8 @@ from typing import Optional
 
 import requests
 
-from src.domain.models import Cve, Exploit
-from src.ports.repositories import ICveRepository, IExploitRepository
+from src.domain.models import Cve, Exploit, OwaspTop10Entry
+from src.ports.repositories import ICveRepository, IExploitRepository, IOwaspTop10Repository
 from src.ports.services import IEmbeddingService, IVectorStore
 from src.infrastructure.config import settings
 
@@ -281,3 +281,158 @@ class IndexarExploitDb:
                     return
 
         print(f"Indexacion completada. Total: {len(existing_ids) + total} exploits.")
+
+
+class IndexarOwaspTop10:
+    def __init__(
+        self,
+        owasp_repo: IOwaspTop10Repository,
+        embed: IEmbeddingService,
+        vector_store: IVectorStore,
+    ):
+        self._owasp_repo = owasp_repo
+        self._embed = embed
+        self._vector_store = vector_store
+
+    def _clone_or_update_repo(self) -> None:
+        if not os.path.exists(settings.owasp_local_dir):
+            print(f"Clonando {settings.owasp_repo_url} ...")
+            subprocess.run(
+                ["git", "clone", "--depth", "1", settings.owasp_repo_url, settings.owasp_local_dir],
+                check=True,
+            )
+        else:
+            print("Actualizando repositorio local de OWASP Top10...")
+            subprocess.run(["git", "-C", settings.owasp_local_dir, "pull"], check=True)
+
+    def _parse_files(self) -> list[dict]:
+        docs_dir = os.path.join(settings.owasp_local_dir, "2025", "docs", "en")
+        if not os.path.isdir(docs_dir):
+            raise FileNotFoundError(f"No se encontro la carpeta {docs_dir}")
+
+        CATEGORY_MAP = {
+            "0x00": "introduction",
+            "0x01": "about_owasp",
+            "0x02": "risk_methodology",
+            "0x03": "appsec_program",
+            "A01": "broken_access_control",
+            "A02": "security_misconfiguration",
+            "A03": "supply_chain",
+            "A04": "cryptographic_failures",
+            "A05": "injection",
+            "A06": "insecure_design",
+            "A07": "authentication_failures",
+            "A08": "integrity_failures",
+            "A09": "logging_failures",
+            "A10": "exceptional_conditions",
+            "X01": "next_steps",
+        }
+
+        documents: list[dict] = []
+        for fname in sorted(os.listdir(docs_dir)):
+            if not fname.endswith(".md"):
+                continue
+            path = os.path.join(docs_dir, fname)
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
+                if not text.strip():
+                    continue
+
+                prefix = fname.split("_")[0] if "_" in fname else fname.replace(".md", "")
+                category = CATEGORY_MAP.get(prefix, fname.replace(".md", ""))
+
+                title = category.replace("_", " ").title()
+                for line in text.split("\n"):
+                    if line.startswith("# ") and len(line) > 2:
+                        title = line[2:].strip()
+                        break
+
+                risk_rank = ""
+                if fname.startswith("A"):
+                    risk_rank = fname[1:3]
+
+                doc_id = f"owasp_2025_{prefix.lower()}"
+                documents.append({
+                    "id": doc_id,
+                    "category": category,
+                    "title": title,
+                    "content": text[:settings.owasp_max_text_length],
+                    "risk_rank": risk_rank,
+                    "cwes": "",
+                })
+            except Exception as e:
+                logger.warning("No se pudo leer archivo OWASP %s: %s", path, e)
+        return documents
+
+    def execute(self) -> None:
+        print("=== Indexando OWASP Top 10 2025 en MongoDB + ChromaDB ===")
+
+        self._clone_or_update_repo()
+
+        print("Extrayendo documentos OWASP Top 10...")
+        docs = self._parse_files()
+        print(f"Se encontraron {len(docs)} documentos.")
+
+        if not docs:
+            print("No se encontraron documentos. Abortando.")
+            return
+
+        print("Guardando en MongoDB...")
+        try:
+            self._owasp_repo.store_bulk([
+                OwaspTop10Entry(
+                    id=d['id'],
+                    category=d['category'],
+                    title=d['title'],
+                    content=d['content'],
+                    risk_rank=d['risk_rank'],
+                    cwes=d['cwes'],
+                )
+                for d in docs
+            ])
+            print(f"   OK {len(docs)} documentos almacenados en MongoDB.")
+        except Exception as e:
+            print(f"   Error al guardar en MongoDB: {e}")
+
+        existing_ids = self._vector_store.get_existing_ids(settings.chroma_owasp_collection)
+        print(f"Ya existen {len(existing_ids)} documentos en ChromaDB.")
+
+        new_docs = [d for d in docs if d['id'] not in existing_ids]
+        if not new_docs:
+            print("Todos los documentos ya estaban indexados.")
+            return
+
+        print(f"Se indexaran {len(new_docs)} nuevos documentos.")
+
+        batch_size = settings.owasp_batch_size
+        total = len(new_docs)
+
+        for start in range(0, total, batch_size):
+            end = min(start + batch_size, total)
+            batch = new_docs[start:end]
+            ids = [d['id'] for d in batch]
+            texts = [d['content'] for d in batch]
+            metadatas = [
+                {"category": d['category'], "title": d['title'], "risk_rank": d['risk_rank']}
+                for d in batch
+            ]
+
+            embeddings = self._embed.generate_batch(texts)
+            if embeddings is None:
+                print(f"Fallo en lote {start // batch_size + 1}. Abortando.")
+                return
+
+            try:
+                self._vector_store.upsert(
+                    settings.chroma_owasp_collection,
+                    ids=ids, documents=texts,
+                    embeddings=embeddings,
+                    metadatas=metadatas,
+                )
+                print(f"   OK Lote {start // batch_size + 1} ({start + 1}-{end}/{total}) insertado.")
+            except Exception as e:
+                print(f"Error en lote {start // batch_size + 1}: {e}")
+                return
+
+        print(f"Indexacion completada. Total: {len(existing_ids) + total} documentos.")

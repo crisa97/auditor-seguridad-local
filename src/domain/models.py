@@ -59,6 +59,17 @@ class ApiKey:
 
 
 @dataclass
+class OwaspTop10Entry:
+    id: str
+    category: str
+    title: str
+    content: str
+    risk_rank: str = ""
+    cwes: str = ""
+    chroma_id: str = ""
+
+
+@dataclass
 class Afirmacion:
     texto: str
     es_verdadero: bool = False
