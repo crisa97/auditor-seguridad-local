@@ -10,6 +10,12 @@ load_dotenv()
 class Settings:
     # Ollama
     analyzer_model: str = field(default_factory=lambda: os.getenv("ANALYZER_MODEL", "auditor-seguridad"))
+    analyzer_system_prompt: str = field(default_factory=lambda: os.getenv("ANALYZER_SYSTEM_PROMPT",
+        "Eres un auditor de seguridad ofensivo. Analiza codigo fuente buscando vulnerabilidades reales. "
+        "Responde en espanol. Si encuentras vulnerabilidades, usa este formato:\n\n"
+        "Titulo:\n* Severidad: [Critica/Alta/Media/Baja]\n* Ubicacion:\n* Descripcion:\n* Mitigacion:\n"
+        "* CVE o CWE:\n* OWASP: [categoria OWASP]\n\n"
+        "No inventes vulnerabilidades que no existen. Si no hay ninguna, responde: No se encontraron vulnerabilidades."))
     embedding_model: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL", "nomic-embed-text"))
     ollama_api_url: str = field(default_factory=lambda: os.getenv("OLLAMA_API_URL", "http://localhost:11434/api"))
     ollama_base_url: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
@@ -45,6 +51,7 @@ class Settings:
     # Analisis
     analysis_chunk_size: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_CHUNK_SIZE", "8000")))
     analysis_query_length: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_QUERY_LENGTH", "500")))
+    analysis_max_context_chars: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_MAX_CONTEXT_CHARS", "2000")))
     report_output_dir: str = field(default_factory=lambda: os.getenv("REPORT_OUTPUT_DIR", "reportes"))
 
     # MongoDB
