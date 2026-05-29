@@ -147,28 +147,36 @@ async def validation_middleware(request, call_next):
         if r.accion == ResultadoValidacion.PENDIENTE:
             registrar_pendiente(r.afirmacion, texto_consulta)
 
-    # 4. Enriquecer con contexto RAG
-    if os.getenv("RAG_AUTO_ENRICH", "true").lower() == "true" and api_key:
-        try:
-            rag_contexto = await _fetch_rag_context(texto_consulta, api_key)
-            if rag_contexto:
-                messages = body.get("messages", [])
-                insert_pos = 0
-                for i, m in enumerate(messages):
-                    if m.get("role") == "system":
-                        insert_pos = i + 1
-                    else:
-                        break
-                messages.insert(insert_pos, {
-                    "role": "system",
-                    "content": f"Contexto de vulnerabilidades relevantes:\n{rag_contexto}"
-                })
-                body["messages"] = messages
-                request._body = json.dumps(body).encode()
-                if hasattr(request, "_json"):
-                    del request._json
-        except Exception:
-            log.warning("Error en enrichment RAG (continuando sin contexto)")
+    # 4. Inyectar system prompt de formato (siempre) + RAG (si disponible)
+    try:
+        messages = body.get("messages", [])
+        system_parts = ["Responde en espanol. Cada vulnerabilidad empieza con su nombre (sin prefijos). Ejemplo:\nSQL Injection\n\u2022 Severidad: Alta\n\u2022 Ubicacion: archivo.php:10\n\u2022 Descripcion: texto\n\u2022 Mitigacion: texto\n\u2022 CVE o CWE: CWE-89\n\u2022 OWASP: A1 Injection"]
+
+        rag_contexto = None
+        if os.getenv("RAG_AUTO_ENRICH", "true").lower() == "true" and api_key:
+            try:
+                rag_contexto = await _fetch_rag_context(texto_consulta, api_key)
+                if rag_contexto:
+                    system_parts.append(f"Contexto de vulnerabilidades relevantes:\n{rag_contexto}")
+            except Exception:
+                log.warning("Error en enrichment RAG (continuando sin contexto)")
+
+        insert_pos = 0
+        for i, m in enumerate(messages):
+            if m.get("role") == "system":
+                insert_pos = i + 1
+            else:
+                break
+        messages.insert(insert_pos, {
+            "role": "system",
+            "content": "\n\n".join(system_parts)
+        })
+        body["messages"] = messages
+        request._body = json.dumps(body).encode()
+        if hasattr(request, "_json"):
+            del request._json
+    except Exception:
+        log.warning("Error al inyectar system prompt")
 
     return await call_next(request)
 

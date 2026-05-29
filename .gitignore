@@ -17,3 +17,4 @@ build/
 .venv/
 nvd_full_cache.json
 owasp-top10-local/
+test/

@@ -12,6 +12,12 @@ services:
       - OLLAMA_NUM_PARALLEL=1
       - OLLAMA_FLASH_ATTENTION=1
       - OLLAMA_CONTEXT_LENGTH=8192
+    deploy:
+      resources:
+        limits:
+          memory: 20G
+        reservations:
+          memory: 8G
 
   ollama-init:
     image: ollama/ollama:latest
@@ -25,7 +31,7 @@ services:
       - |
         sleep 10
         echo "Descargando modelo base..."
-        ollama pull deepseek-coder-v2:16b
+        ollama pull qwen2.5-coder:7b
         echo "Descargando modelo de embeddings nomic-embed-text..."
         ollama pull nomic-embed-text
         echo "Creando modelo auditor-seguridad desde Modelfile..."
@@ -33,6 +39,12 @@ services:
         echo "Modelos listos."
     environment:
       - OLLAMA_HOST=ollama:11434
+    deploy:
+      resources:
+        limits:
+          memory: 20G
+        reservations:
+          memory: 4G
 
   chromadb:
     image: chromadb/chroma:latest
@@ -175,6 +187,7 @@ services:
       - open-webui_data:/app/backend/data
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
+      - DEFAULT_MODELS=auditor-seguridad:latest
       - DATABASE_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
       - DB_URL=postgresql://openwebui:openwebui_pass@postgres:5432/openwebui
       - API_KEY_SALT=${API_KEY_SALT:-cambiar_esto_salt_seguro_por_favor}

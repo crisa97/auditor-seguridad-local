@@ -1,6 +1,7 @@
 import logging
 import os
 import datetime
+import re
 from typing import Optional
 
 from src.domain.models import Hallazgo
@@ -14,13 +15,131 @@ logger = logging.getLogger(__name__)
 
 
 _FIELD_MAP = [
-    (("Título:", "Titulo:"), "titulo"),
-    (("• Severidad:", "* Severidad:", "- Severidad:"), "severidad"),
-    (("• Ubicación:", "* Ubicación:", "- Ubicación:", "- Ubicacion:"), "ubicacion"),
-    (("• Descripción:", "* Descripción:", "- Descripción:", "- Descripcion:"), "descripcion"),
-    (("• Mitigación:", "* Mitigación:", "- Mitigación:", "- Mitigacion:"), "mitigacion"),
-    (("• CVE o CWE:", "* CVE o CWE:", "- CVE o CWE:"), "cve_cwe"),
+    (("\u2022 Severidad:", "* Severidad:", "- Severidad:", "**Severidad:"), "severidad"),
+    (("\u2022 Ubicaci\u00f3n:", "\u2022 Ubicacion:", "* Ubicaci\u00f3n:", "* Ubicacion:", "- Ubicaci\u00f3n:", "- Ubicacion:", "**Ubicacion:"), "ubicacion"),
+    (("\u2022 Descripci\u00f3n:", "\u2022 Descripcion:", "* Descripci\u00f3n:", "* Descripcion:", "- Descripci\u00f3n:", "- Descripcion:", "**Descripcion:"), "descripcion"),
+    (("\u2022 Mitigaci\u00f3n:", "\u2022 Mitigacion:", "* Mitigaci\u00f3n:", "* Mitigacion:", "- Mitigaci\u00f3n:", "- Mitigacion:", "**Mitigacion:"), "mitigacion"),
+    (("\u2022 CVE o CWE:", "* CVE o CWE:", "- CVE o CWE:", "**CVE o CWE:"), "cve_cwe"),
+    (("\u2022 OWASP:", "* OWASP:", "- OWASP:", "OWASP:", "Owasp:", "**OWASP:"), "owasp"),
 ]
+
+# languages where indent signals block structure (Python, Ruby, etc.)
+_INDENT_BASED = {"py", "rb", "rpy", "jl", "nim", "cobra", "wren"}
+# function-start patterns per language group
+_FUNC_RE = re.compile(
+    r"^\s*"
+    r"(?:"
+    r"(?:async\s+)?def\s+\w+|"                         # Python def
+    r"class\s+\w+|"                                     # Python/JS/Ruby class
+    r"(?:export\s+)?(?:async\s+)?function\s+\w+|"       # JS/TS/PHP function
+    r"(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*"     # JS arrow
+    r"(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>|"
+    r"(?:public|private|protected|internal|static|"     # Java/C#/C++ access modifiers
+    r"virtual|override|abstract|sealed|async)\s+"
+    r"(?:\w+[<>\w]*\s+)?\w+\s*\(|"
+    r"(?:public|private|protected|internal|static|"
+    r"abstract|sealed)\s+class\s+\w+|"
+    r"func\s+(?:\([^)]*\)\s+)?\w+\s*\(|"               # Go
+    r"def\s+\w+|"                                       # Ruby
+    r"fn\s+\w+|"                                        # Rust
+    r"fun\s+\w+|"                                       # Kotlin
+    r"(?:public|private|protected|static|abstract)"     # PHP method
+    r"\s+function\s+\w+"
+    r")",
+    re.MULTILINE,
+)
+
+
+_ROUTE_RE = re.compile(
+    r"^\s*(?:app|router|route|server)\s*\.\s*(?:get|post|put|delete|patch|use|all|head|options)\s*\("
+)
+
+_BLOCK_SPLIT_MIN = 5  # min lines per block when falling back to blank-line split
+
+
+def _split_functions(code: str, ext: str) -> list[dict]:
+    """Split code into logical chunks (functions, classes, route handlers, top-level blocks).
+    
+    Returns list of {name, start_line, end_line, code}.
+    """
+    lines = code.split("\n")
+    n = len(lines)
+    chunks: list[dict] = []
+    chunk_start = 0
+    chunk_name = "(top)"
+
+    def flush(end: int):
+        block = "\n".join(lines[chunk_start:end])
+        if block.strip():
+            chunks.append({
+                "name": chunk_name,
+                "start_line": chunk_start + 1,
+                "end_line": end,
+                "code": block,
+            })
+
+    is_indent = ext in _INDENT_BASED
+
+    for i, line in enumerate(lines):
+        m = _FUNC_RE.match(line)
+        if m:
+            flush(i)
+            chunk_start = i
+            raw = line.strip()
+            for kw in ("class ", "function ", "def ", "func ", "fn ", "fun "):
+                if kw in raw:
+                    chunk_name = raw.split(kw, 1)[1].split("(")[0].split(":")[0].split("{")[0].strip()
+                    break
+            else:
+                chunk_name = raw.split("(")[0].strip().split()[-1] if "(" in raw else raw[:50]
+            continue
+
+        rm = _ROUTE_RE.match(line)
+        if rm:
+            flush(i)
+            chunk_start = i
+            # extract route method + path
+            route_match = line.strip()
+            chunk_name = route_match.split("{")[0].strip()[:60]
+            continue
+
+        if not is_indent and not line.strip():
+            if i + 1 < n:
+                next_line = lines[i + 1]
+                if _FUNC_RE.match(next_line) or _ROUTE_RE.match(next_line):
+                    flush(i)
+                    chunk_start = i + 1
+
+    flush(n)
+
+    # fallback: if no functions/routes found, split by blank lines into blocks
+    if len(chunks) <= 1:
+        chunks = []
+        chunk_start = 0
+        for i, line in enumerate(lines):
+            if not line.strip() and i - chunk_start >= _BLOCK_SPLIT_MIN:
+                block = "\n".join(lines[chunk_start:i])
+                if block.strip():
+                    chunks.append({
+                        "name": f"(bloque l\u00ednea {chunk_start + 1})",
+                        "start_line": chunk_start + 1,
+                        "end_line": i,
+                        "code": block,
+                    })
+                chunk_start = i + 1
+        if chunk_start < n:
+            block = "\n".join(lines[chunk_start:])
+            if block.strip():
+                chunks.append({
+                    "name": f"(bloque l\u00ednea {chunk_start + 1})",
+                    "start_line": chunk_start + 1,
+                    "end_line": n,
+                    "code": block,
+                })
+
+    if not chunks:
+        chunks = [{"name": "(archivo completo)", "start_line": 1, "end_line": n, "code": code}]
+    return chunks
 
 
 class AnalizarProyecto:
@@ -63,6 +182,7 @@ class AnalizarProyecto:
 
         report_lines: list[str] = []
         total_files = 0
+        total_vulnerabilities = 0
 
         for root, dirs, files in os.walk(project_path, topdown=True):
             dirs[:] = [d for d in dirs if d not in settings.ignore_dirs and not d.startswith('.')]
@@ -79,19 +199,12 @@ class AnalizarProyecto:
                     print(f"  No se pudo leer {path}: {e}")
                     continue
 
-                if len(content) > settings.analysis_chunk_size:
-                    content = content[:settings.analysis_chunk_size] + "\n... [TRUNCADO]"
-
                 print(f"  Analizando {path}...")
-                res = self._analizar_archivo(path, content, analisis_id)
-
-                entry = f"{'=' * 60}\nARCHIVO: {path}\n{'=' * 60}\n{res}\n"
-                report_lines.append(entry)
-
-                self._analisis_repo.update_state(
-                    analisis_id, EstadoAnalisis.EN_PROCESO,
-                    archivosAnalizados=total_files,
+                chunk_vulns = self._analizar_archivo(
+                    path, content, analisis_id,
+                    report_lines=report_lines,
                 )
+                total_vulnerabilities += chunk_vulns
 
         if total_files == 0:
             self._analisis_repo.update_state(
@@ -101,30 +214,53 @@ class AnalizarProyecto:
             return {"analisis_id": analisis_id, "status": "error",
                     "message": "No se encontraron archivos de codigo"}
 
-        report_text = "\n".join(report_lines)
-
-        if self._report_gen:
-            self._report_gen.generate_txt(report_text, txt_path)
-            self._report_gen.generate_pdf(report_text, pdf_path)
+        # only generate reports if vulnerabilities were found
+        if total_vulnerabilities > 0 and report_lines:
+            report_text = "\n".join(report_lines)
+            if self._report_gen:
+                self._report_gen.generate_txt(report_text, txt_path)
+                self._report_gen.generate_pdf(report_text, pdf_path)
+            reporte_txt = txt_path
+            reporte_pdf = pdf_path
+            print(f"   TXT: {txt_path}")
+            print(f"   PDF: {pdf_path}")
+        else:
+            reporte_txt = ""
+            reporte_pdf = ""
 
         self._analisis_repo.update_state(
             analisis_id, EstadoAnalisis.COMPLETADO,
             totalFiles=total_files, archivosAnalizados=total_files,
-            reporteTxt=txt_path, reportePdf=pdf_path,
+            reporteTxt=reporte_txt, reportePdf=reporte_pdf,
         )
 
         if servicio_url and api_key:
+            report_text = "\n".join(report_lines) if report_lines else "Sin hallazgos"
             self._enviar_resultado(report_text, api_key, servicio_url, analisis_id)
 
         return {
             "analisis_id": analisis_id,
             "status": "completado",
             "total_files": total_files,
-            "reporte_txt": txt_path,
-            "reporte_pdf": pdf_path,
+            "total_vulnerabilidades": total_vulnerabilities,
+            "reporte_txt": reporte_txt,
+            "reporte_pdf": reporte_pdf,
         }
 
-    def _analizar_archivo(self, filepath: str, content: str, analisis_id: str) -> str:
+    def _analizar_archivo(
+        self,
+        filepath: str,
+        content: str,
+        analisis_id: str,
+        report_lines: list[str],
+    ) -> bool:
+        _, ext = os.path.splitext(filepath)
+        ext = ext.lstrip(".").lower()
+        chunks = _split_functions(content, ext)
+
+        all_findings: list[str] = []
+        file_vuln_count = 0
+
         query = content[:settings.analysis_query_length]
         query_embedding = self._embed.generate(query)
         retrieved_nvd: list[str] = []
@@ -164,51 +300,125 @@ class AnalizarProyecto:
             parts.append("**Vulnerabilidades NVD relacionadas:**\n" + "\n---\n".join(retrieved_nvd))
         if retrieved_exploit:
             parts.append("**Exploits publicos relacionados (ExploitDB):**\n" + "\n---\n".join(retrieved_exploit))
-        context_str = "\n\n".join(parts) if parts else "No se encontraron CVEs ni exploits relevantes."
+        context_str = "\n\n".join(parts) if parts else ""
+        if len(context_str) > settings.analysis_max_context_chars:
+            context_str = context_str[:settings.analysis_max_context_chars] + "\n... [CONTEXTO TRUNCADO]"
 
-        prompt = f"""Eres un auditor de seguridad experto e implacable. Analiza el siguiente codigo fuente del archivo {filepath}.
+        # build a single prompt with ALL chunks from this file
+        chunks_in_prompt = []
+        total_code_len = 0
+        for chunk in chunks:
+            chunk_code = chunk["code"]
+            remaining = settings.analysis_chunk_size - total_code_len
+            if remaining <= 0:
+                break
+            if len(chunk_code) > remaining:
+                chunk_code = chunk_code[:remaining] + "\n... [TRUNCADO]"
+            total_code_len += len(chunk_code)
+            label = f"{chunk['name']} (l\u00edneas {chunk['start_line']}-{chunk['end_line']})"
+            chunks_in_prompt.append(f"=== {label} ===\n{chunk_code}")
 
-Realiza un analisis completo en busca de **cualquier tipo de vulnerabilidad o mala practica de seguridad**, incluyendo pero sin limitarte a: inyecciones, problemas de autenticacion, exposicion de datos, control de acceso, configuraciones incorrectas, XSS, subida de archivos, debilidades en IaC (Docker, Kubernetes, etc.), hardcodeo de credenciales, cabeceras HTTP mal configuradas, IDOR, LFI/RFI, y cualquier otra debilidad.
-
-Para cada vulnerabilidad que encuentres, proporciona la informacion con este formato exacto:
-
-Título:
-• Severidad:
-• Ubicación:
-• Descripción:
-• Mitigación:
-• CVE o CWE:
-
-Si no encuentras ninguna vulnerabilidad, responde unicamente: "No se encontraron vulnerabilidades".
-
-{context_str}
-
-Codigo a analizar:
-{content}"""
-
+        full_code_block = "\n\n".join(chunks_in_prompt)
+        prompt = self._build_prompt(filepath, full_code_block, context_str)
         response = self._llm.generate(prompt)
-        self._parse_and_store_findings(analisis_id, filepath, response, raw_response=response)
-        return response
+
+        has_valid_response = bool(response and "No se encontraron vulnerabilidades" not in response)
+        if has_valid_response:
+            self._parse_and_store_findings(analisis_id, filepath, response, raw_response=response)
+            all_findings.append(response)
+            file_vuln_count += 1
+
+        if file_vuln_count > 0:
+            header = f"{'=' * 60}\nARCHIVO: {filepath}\n{'=' * 60}"
+            report_lines.append(header + "\n" + "\n\n".join(all_findings))
+        elif response:
+            print(f"    No se encontraron vulnerabilidades.")
+            report_lines.append(
+                f"{'=' * 60}\nARCHIVO: {filepath}\n{'=' * 60}\nNo se encontraron vulnerabilidades.\n"
+            )
+        else:
+            print(f"    Error: el modelo no respondi\u00f3 (timeout).")
+
+        return file_vuln_count
+
+    def _build_prompt(self, filepath: str, full_code_block: str, context_str: str) -> str:
+        ctx = f"\n\nContexto:\n{context_str}" if context_str else ""
+        return (
+            f"Analiza este codigo buscando vulnerabilidades de seguridad:\n"
+            f"{ctx}\n\n{full_code_block}"
+        )
 
     def _parse_and_store_findings(self, analisis_id: str, filepath: str, response: str, raw_response: str = "") -> None:
         if "No se encontraron vulnerabilidades" in response:
             return
         lines = response.strip().splitlines()
         current: dict[str, str] = {}
+        saved_signatures: set[str] = set()
+        prev_blank = True  # first content line acts as after-blank
         for line in lines:
             line = line.strip()
+            if not line:
+                prev_blank = True
+                continue
+
+            # Section headers like "Vulnerabilidad 1:" / "Hallazgo 1:" / "1. Injection SQL"
+            if re.match(r"^(\d+[\.\)]\s|Vulnerabilidad\s+\d+|Hallazgo\s+\d+|Finding\s+\d+)", line, re.IGNORECASE):
+                self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
+                current = {}
+                # Strip the number prefix and use as title
+                line = re.sub(r"^\d+[\.\)]\s*", "", line).strip()
+                if line:
+                    current["titulo"] = line
+                prev_blank = True
+                continue
+
+            # Try to match known field prefixes (bullet fields)
+            matched_prefix = False
             for prefixes, key in _FIELD_MAP:
                 for prefix in prefixes:
                     if line.startswith(prefix):
-                        if key == "titulo" and current.get("titulo"):
-                            self._save_finding(analisis_id, filepath, current, raw_response=raw_response)
+                        # encountering a second "Severidad:" means a new finding
+                        if key == "severidad" and current.get(key):
+                            self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
                             current = {}
                         current[key] = line.split(":", 1)[1].strip()
+                        matched_prefix = True
+                        prev_blank = False
                         break
-                else:
-                    continue
-                break
-        if current.get("titulo"):
+                if matched_prefix:
+                    break
+
+            if matched_prefix:
+                continue
+
+            # Line without any field prefix
+            if prev_blank:
+                # After blank line → title of a new finding
+                self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
+                current = {}
+                current["titulo"] = line
+            else:
+                # Continuation text of previous field
+                for prefixes, key in reversed(_FIELD_MAP):
+                    if current.get(key):
+                        current[key] += " " + line
+                        break
+            prev_blank = False
+
+        self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
+
+    def _maybe_save_finding(self, analisis_id: str, filepath: str, current: dict[str, str],
+                            saved_signatures: set[str], raw_response: str = "") -> None:
+        if not any(current.values()):
+            return
+        # Skip entries without real fields (introductory text only)
+        if not current.get("severidad") and not current.get("ubicacion"):
+            return
+        if not current.get("titulo"):
+            current["titulo"] = current.get("severidad", "Hallazgo de seguridad")
+        sig = (current.get("ubicacion", ""), current.get("descripcion", "")[:80])
+        if sig not in saved_signatures:
+            saved_signatures.add(sig)
             self._save_finding(analisis_id, filepath, current, raw_response=raw_response)
 
     def _save_finding(self, analisis_id: str, filepath: str, finding: dict[str, str], raw_response: str = "") -> None:
@@ -222,6 +432,7 @@ Codigo a analizar:
                 mitigacion=finding.get("mitigacion", ""),
                 ubicacion=finding.get("ubicacion", ""),
                 cve_cwe=finding.get("cve_cwe", "N/A"),
+                owasp=finding.get("owasp", ""),
                 raw_response=raw_response,
             ))
         except Exception as e:

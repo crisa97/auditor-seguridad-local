@@ -22,6 +22,7 @@ class MongoHallazgoRepository(IHallazgoRepository):
             "mitigacion": hallazgo.mitigacion,
             "ubicacion": hallazgo.ubicacion,
             "cve_cwe": hallazgo.cve_cwe,
+            "owasp": hallazgo.owasp,
             "raw_response": hallazgo.raw_response,
         }
         result = self._col.insert_one(doc)

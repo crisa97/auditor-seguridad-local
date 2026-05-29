@@ -30,6 +30,7 @@ class Hallazgo:
     mitigacion: str
     ubicacion: str
     cve_cwe: str
+    owasp: str = ""
     raw_response: str = ""
 
 

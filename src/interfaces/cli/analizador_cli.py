@@ -66,10 +66,15 @@ def show_queue_status(task_id):
             data = result.result
             print("Estado: COMPLETADO.")
             if isinstance(data, dict):
+                vulns = data.get('total_vulnerabilidades', 0)
                 print(f"   ID de analisis: {data.get('analisis_id', 'N/A')}")
                 print(f"   Archivos analizados: {data.get('total_files', 'N/A')}")
-                print(f"   Reporte TXT: {data.get('reporte_txt', 'N/A')}")
-                print(f"   Reporte PDF: {data.get('reporte_pdf', 'N/A')}")
+                if vulns > 0:
+                    print(f"   Vulnerabilidades encontradas: {vulns}")
+                    print(f"   Reporte TXT: {data.get('reporte_txt', 'N/A')}")
+                    print(f"   Reporte PDF: {data.get('reporte_pdf', 'N/A')}")
+                else:
+                    print(f"   No se encontraron vulnerabilidades.")
         elif result.state == "FAILURE":
             print(f"Estado: FALLIDO.")
             print(f"   Error: {result.info}")
@@ -175,6 +180,19 @@ Ejemplos:
         print(f"Error: la ruta '{project_path}' no es un directorio valido.")
         sys.exit(1)
 
+    # warm up the model before analysis to avoid first-request timeout
+    print("  Preparando modelo de analisis (puede tomar hasta 2 minutos)...")
+    try:
+        import requests as req
+        req.post(
+            f"{settings.ollama_base_url}/api/generate",
+            json={"model": settings.analyzer_model, "prompt": "ok", "stream": False, "keep_alive": "30m"},
+            timeout=600,
+        )
+    except Exception as e:
+        log.debug("Warmup ignorado: %s", e)
+    print("  Listo.")
+
     analizador = get_analizador()
     result = analizador.execute(
         project_path=project_path,
@@ -182,9 +200,14 @@ Ejemplos:
         servicio_url=args.enviar or "",
     )
 
+    vulns = result.get('total_vulnerabilidades', 0)
     print(f"\nAnalisis completado. Archivos analizados: {result.get('total_files', 0)}.")
-    print(f"   TXT: {result.get('reporte_txt', 'N/A')}")
-    print(f"   PDF: {result.get('reporte_pdf', 'N/A')}")
+    if vulns > 0:
+        print(f"   Vulnerabilidades encontradas: {vulns}")
+        print(f"   TXT: {result.get('reporte_txt', 'N/A')}")
+        print(f"   PDF: {result.get('reporte_pdf', 'N/A')}")
+    else:
+        print(f"   No se encontraron vulnerabilidades.")
     print(f"   MongoDB ID: {result.get('analisis_id', 'N/A')}")
 
 
