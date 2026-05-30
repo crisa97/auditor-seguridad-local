@@ -52,6 +52,7 @@ class Settings:
     analysis_chunk_size: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_CHUNK_SIZE", "8000")))
     analysis_query_length: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_QUERY_LENGTH", "500")))
     analysis_max_context_chars: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_MAX_CONTEXT_CHARS", "2000")))
+    analysis_avg_time_per_item: float = field(default_factory=lambda: float(os.getenv("ANALYSIS_AVG_TIME_PER_ITEM", "15.0")))
     report_output_dir: str = field(default_factory=lambda: os.getenv("REPORT_OUTPUT_DIR", "reportes"))
 
     # Optimizacion de analisis

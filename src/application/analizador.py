@@ -4,6 +4,7 @@ import os
 import datetime
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from typing import Optional
@@ -384,17 +385,40 @@ class AnalizarProyecto:
         # 3. Agrupar archivos pequenos en lotes
         items = self._agrupar_archivos(archivos)
 
-        # 4. Procesar en paralelo
+        # 4. Estimar tiempo y mostrar barra de progreso
         report_lines: list[str] = []
         report_lock = threading.Lock()
         total_vulnerabilities = 0
+        total_items = len(items)
+        max_workers = min(settings.analysis_max_workers, total_items)
+
+        avg_time = self._analisis_repo.get_avg_time_per_file()
+        estimated_sec = (total_items * avg_time) / max(max_workers, 1)
 
         self._analisis_repo.update_state(
             analisis_id, EstadoAnalisis.EN_PROCESO,
             totalFiles=total_files,
+            tiempoEstimadoSeg=round(estimated_sec),
         )
 
-        max_workers = min(settings.analysis_max_workers, len(items))
+        from tqdm import tqdm
+        start_ts = time.time()
+        pbar = tqdm(
+            total=total_items,
+            desc=f"Analizando ({max_workers} workers)",
+            unit="item",
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+        )
+
+        def estimar_restante(n_completados: int, elapsed: float) -> str:
+            if n_completados == 0:
+                return f"~{estimated_sec:.0f}s"
+            rate = n_completados / elapsed
+            if rate <= 0:
+                return "?"
+            resto = (total_items - n_completados) / rate
+            return f"~{resto:.0f}s"
+
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {}
             for item in items:
@@ -410,6 +434,16 @@ class AnalizarProyecto:
                     total_vulnerabilities += chunk
                 except Exception as e:
                     logger.error("Error en item de analisis: %s", e)
+                finally:
+                    pbar.update(1)
+                    elapsed = time.time() - start_ts
+                    pbar.set_postfix_str(
+                        f"vulns={total_vulnerabilities}, restante={estimar_restante(pbar.n, elapsed)}"
+                    )
+
+        pbar.close()
+        elapsed_total = time.time() - start_ts
+        print(f"  Tiempo total: {elapsed_total:.0f}s | Items: {total_items} | Vulnerabilidades: {total_vulnerabilities}")
 
         # 5. Generar reportes
         pdf_bytes = None
@@ -441,6 +475,7 @@ class AnalizarProyecto:
             analisis_id, EstadoAnalisis.COMPLETADO,
             totalFiles=total_files, archivosAnalizados=total_files,
             reporteTxt=reporte_txt, reportePdf=reporte_pdf,
+            tiempoTotalSeg=round(elapsed_total),
         )
 
         if servicio_url and api_key:
@@ -454,6 +489,7 @@ class AnalizarProyecto:
             "total_vulnerabilidades": total_vulnerabilities,
             "reporte_txt": reporte_txt,
             "reporte_pdf": reporte_pdf,
+            "tiempo_total_seg": round(elapsed_total),
         }
         if pdf_bytes is not None:
             result["pdf_bytes"] = pdf_bytes

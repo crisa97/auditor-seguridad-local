@@ -8,6 +8,7 @@ from src.domain.models import Hallazgo, Analisis
 from src.domain.enums import EstadoAnalisis
 from src.ports.repositories import IHallazgoRepository, IAnalisisRepository
 from src.adapters.mongodb.connection import MongoConnection
+from src.infrastructure.config import settings
 
 
 class MongoHallazgoRepository(IHallazgoRepository):
@@ -110,6 +111,30 @@ class MongoAnalisisRepository(IAnalisisRepository):
             error=d.get("error", ""),
             usuario_id=d.get("usuarioId", 0),
         ) for d in docs]
+
+    def get_avg_time_per_file(self) -> float:
+        try:
+            pipeline = [
+                {"$match": {"estado": "completado", "tiempoTotalSeg": {"$exists": True, "$ne": None}}},
+                {"$sort": {"timestamp": -1}},
+                {"$limit": 10},
+                {"$group": {"_id": None, "avg": {"$avg": "$tiempoTotalSeg"}, "count": {"$sum": 1}}},
+            ]
+            result = list(self._col.aggregate(pipeline))
+            if result and result[0]["count"] > 0:
+                total_avg = result[0]["avg"]
+                items_pipeline = [
+                    {"$match": {"estado": "completado", "tiempoTotalSeg": {"$exists": True}}},
+                    {"$sort": {"timestamp": -1}},
+                    {"$limit": 10},
+                    {"$group": {"_id": None, "avg_items": {"$avg": "$totalFiles"}}},
+                ]
+                items_result = list(self._col.aggregate(items_pipeline))
+                avg_items = items_result[0]["avg_items"] if items_result else 1
+                return max(total_avg / max(avg_items, 1), 1.0)
+            return settings.analysis_avg_time_per_item
+        except Exception:
+            return settings.analysis_avg_time_per_item
 
     def store_pdf(self, analisis_id: str, pdf_bytes: bytes) -> None:
         try:

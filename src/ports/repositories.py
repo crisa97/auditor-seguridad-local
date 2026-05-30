@@ -65,6 +65,9 @@ class IAnalisisRepository(ABC):
     @abstractmethod
     def get_pdf(self, analisis_id: str) -> Optional[bytes]: ...
 
+    @abstractmethod
+    def get_avg_time_per_file(self) -> float: ...
+
 
 class IApiKeyRepository(ABC):
     @abstractmethod
