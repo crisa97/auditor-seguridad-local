@@ -44,6 +44,7 @@ def create_api_key(body: CreateApiKeyRequest, request: Request):
             nombre_cliente=body.nombre_cliente,
             permisos=body.permisos,
             fecha_expiracion=expiracion,
+            usuario_id=request.state.user.get("id", 0),
         ))
         log.info("API key creada para '%s' por usuario %s",
                  body.nombre_cliente, request.state.user.get("id"))

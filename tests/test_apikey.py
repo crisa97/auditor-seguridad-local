@@ -49,7 +49,7 @@ def test_validar_api_key_valida(mock_get_conn):
 
     mock_cur = MagicMock()
     future = datetime.now(timezone.utc) + timedelta(days=30)
-    mock_cur.fetchone.return_value = (key_hash, "test-", "Test Client", future, True, "rag:leer", None)
+    mock_cur.fetchone.return_value = (key_hash, "test-", "Test Client", future, True, "rag:leer", None, 1)
 
     mock_conn = MagicMock()
     mock_conn.cursor.return_value = mock_cur
@@ -61,6 +61,7 @@ def test_validar_api_key_valida(mock_get_conn):
     assert valida
     assert "válida" in msg or "valida" in msg
     assert datos["nombre_cliente"] == "Test Client"
+    assert datos["usuario_id"] == 1
 
 
 @patch("src.adapters.postgresql.connection.PostgresConnection.get_conn")
@@ -71,7 +72,7 @@ def test_validar_api_key_expirada(mock_get_conn):
 
     mock_cur = MagicMock()
     past = datetime.now(timezone.utc) - timedelta(days=1)
-    mock_cur.fetchone.return_value = (key_hash, "test-", "Expired Client", past, True, "rag:leer", None)
+    mock_cur.fetchone.return_value = (key_hash, "test-", "Expired Client", past, True, "rag:leer", None, 0)
 
     mock_conn = MagicMock()
     mock_conn.cursor.return_value = mock_cur
@@ -92,7 +93,7 @@ def test_validar_api_key_desactivada(mock_get_conn):
 
     mock_cur = MagicMock()
     future = datetime.now(timezone.utc) + timedelta(days=30)
-    mock_cur.fetchone.return_value = (key_hash, "test-", "Disabled Client", future, False, "rag:leer", None)
+    mock_cur.fetchone.return_value = (key_hash, "test-", "Disabled Client", future, False, "rag:leer", None, 0)
 
     mock_conn = MagicMock()
     mock_conn.cursor.return_value = mock_cur

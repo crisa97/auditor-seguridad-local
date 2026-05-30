@@ -48,7 +48,7 @@ class IHallazgoRepository(ABC):
 
 class IAnalisisRepository(ABC):
     @abstractmethod
-    def create(self, project_path: str, total_files: int = 0) -> str: ...
+    def create(self, project_path: str, total_files: int = 0, usuario_id: int = 0) -> str: ...
 
     @abstractmethod
     def update_state(self, analisis_id: str, estado: str, **kwargs) -> None: ...
@@ -58,6 +58,12 @@ class IAnalisisRepository(ABC):
 
     @abstractmethod
     def list_all(self, limit: int = 20) -> list[Analisis]: ...
+
+    @abstractmethod
+    def store_pdf(self, analisis_id: str, pdf_bytes: bytes) -> None: ...
+
+    @abstractmethod
+    def get_pdf(self, analisis_id: str) -> Optional[bytes]: ...
 
 
 class IApiKeyRepository(ABC):

@@ -38,3 +38,6 @@ class IReportGenerator(ABC):
 
     @abstractmethod
     def generate_txt(self, report_text: str, output_path: str) -> None: ...
+
+    @abstractmethod
+    def generate_pdf_bytes(self, report_text: str) -> bytes: ...

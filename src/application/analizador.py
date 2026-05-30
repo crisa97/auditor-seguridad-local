@@ -1,7 +1,11 @@
+import hashlib
 import logging
 import os
 import datetime
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 from typing import Optional
 
 from src.domain.models import Hallazgo
@@ -160,52 +164,212 @@ class AnalizarProyecto:
         self._analisis_repo = analisis_repo
         self._cve_repo = cve_repo
         self._report_gen = report_gen
+        self._ollama_sem = threading.Semaphore(settings.analysis_max_workers)
+        self._embed_cache: dict[str, list[float]] = {}
+        self._project_context: str = ""
+
+    # ── Optimizacion: cache de CVEs ──────────────────────────────────────
+
+    @lru_cache(maxsize=256)
+    def _get_cve_enriched(self, cve_id: str) -> str:
+        if not self._cve_repo:
+            return cve_id
+        try:
+            cve = self._cve_repo.get_by_id(cve_id)
+            if cve and cve.description:
+                return (
+                    f"CVE ID: {cve_id}\n"
+                    f"Severidad: {cve.severity} (CVSS: {cve.score})\n"
+                    f"Descripcion: {cve.description}"
+                )
+        except Exception as e:
+            logger.debug("Error en cache CVE %s: %s", cve_id, e)
+        return cve_id
+
+    # ── Optimizacion: embedding unico por proyecto ───────────────────────
+
+    def _build_project_context(self, all_files: list[dict]) -> str:
+        file_list_text = "\n".join(
+            f"- {af.get('filepath', '')} ({len(af.get('contenido', ''))} chars)"
+            for af in all_files[:50]
+        )
+        query = f"Project files:\n{file_list_text}"
+        hash_key = hashlib.md5(query.encode()).hexdigest()
+        cached = self._embed_cache.get(hash_key)
+        if cached is not None:
+            query_embedding = cached
+        else:
+            query_embedding = self._embed.generate(query[:settings.analysis_query_length])
+            if query_embedding:
+                self._embed_cache[hash_key] = query_embedding
+
+        retrieved_nvd: list[str] = []
+        retrieved_exploit: list[str] = []
+        if query_embedding is not None:
+            try:
+                retrieved_nvd = self._vector_store.query(
+                    query_embedding, settings.chroma_nvd_collection,
+                    n_results=settings.chroma_query_results,
+                )
+            except Exception as e:
+                logger.warning("Error querying ChromaDB NVD: %s", e)
+            try:
+                retrieved_exploit = self._vector_store.query(
+                    query_embedding, settings.chroma_exploit_collection,
+                    n_results=settings.chroma_query_results,
+                )
+            except Exception as e:
+                logger.warning("Error querying ChromaDB ExploitDB: %s", e)
+            if self._cve_repo:
+                for i, doc_text in enumerate(retrieved_nvd):
+                    for line in doc_text.split('\n'):
+                        if line.startswith("CVE ID:"):
+                            cve_id = line.replace("CVE ID:", "").strip()
+                            retrieved_nvd[i] = self._get_cve_enriched(cve_id)
+                            break
+
+        parts = []
+        if retrieved_nvd:
+            parts.append("**Vulnerabilidades NVD relacionadas:**\n" + "\n---\n".join(retrieved_nvd))
+        if retrieved_exploit:
+            parts.append("**Exploits publicos relacionados (ExploitDB):**\n" + "\n---\n".join(retrieved_exploit))
+        context_str = "\n\n".join(parts) if parts else ""
+        if len(context_str) > settings.analysis_max_context_chars:
+            context_str = context_str[:settings.analysis_max_context_chars] + "\n... [CONTEXTO TRUNCADO]"
+        self._project_context = context_str
+
+    # ── Cargar archivos locales con filtros optimizados ──────────────────
+
+    def _cargar_archivos(self, project_path: str) -> list[dict]:
+        archivos = []
+        max_bytes = settings.analysis_max_file_size_kb * 1024
+        minified = settings.analysis_minified_extensions
+        for root, dirs, files in os.walk(project_path, topdown=True):
+            dirs[:] = [d for d in dirs if d not in settings.ignore_dirs and not d.startswith('.')]
+            for file in files:
+                if not (file.endswith(settings.code_extensions) or file in settings.without_ext_files):
+                    continue
+                # saltar archivos minificados
+                if file.endswith(minified):
+                    continue
+                path = os.path.join(root, file)
+                try:
+                    size = os.path.getsize(path)
+                    if size > max_bytes:
+                        logger.debug("Omitiendo %s (%d bytes)", path, size)
+                        continue
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    if content.strip():
+                        rel = os.path.relpath(path, project_path)
+                        archivos.append({"filepath": rel, "contenido": content})
+                except Exception as e:
+                    print(f"  No se pudo leer {path}: {e}")
+        return archivos
+
+    # ── Agrupar archivos pequenos en lotes ────────────────────────────────
+
+    def _agrupar_archivos(self, archivos: list[dict]) -> list:
+        """Divide archivos en items individuales (grandes) y lotes (chicos)."""
+        items = []
+        lote_actual = {"archivos": [], "codigo_total": "", "num_lineas": 0}
+        small_limit = settings.analysis_small_file_lines
+        combine = settings.analysis_combine_small_files
+
+        for af in archivos:
+            content = af["contenido"]
+            num_lines = content.count("\n") + 1
+
+            if not combine or num_lines > small_limit:
+                if lote_actual["archivos"]:
+                    items.append(dict(lote_actual))
+                    lote_actual = {"archivos": [], "codigo_total": "", "num_lineas": 0}
+                items.append({"archivos": [af], "codigo_total": content, "num_lineas": num_lines})
+                continue
+
+            # archivo pequeño → agregar al lote
+            new_total = lote_actual["num_lineas"] + num_lines
+            new_size = len(lote_actual["codigo_total"]) + len(content)
+            if lote_actual["archivos"] and (new_total > small_limit * 5 or new_size > settings.analysis_chunk_size):
+                items.append(dict(lote_actual))
+                lote_actual = {"archivos": [], "codigo_total": "", "num_lineas": 0}
+
+            label = af["filepath"]
+            sep = f"\n\n# --- {label} ---\n"
+            lote_actual["archivos"].append(af)
+            lote_actual["codigo_total"] += sep + content
+            lote_actual["num_lineas"] += num_lines
+
+        if lote_actual["archivos"]:
+            items.append(dict(lote_actual))
+
+        return items
+
+    # ── Analisis individual (hilo seguro) ────────────────────────────────
+
+    def _analizar_item(
+        self,
+        item: dict,
+        analisis_id: str,
+        report_lines: list,
+        report_lock: threading.Lock,
+    ) -> int:
+        """Analiza un item (archivo individual o lote de archivos chicos)."""
+        codigo = item["codigo_total"]
+        archivos = item["archivos"]
+        label = archivos[0]["filepath"] if len(archivos) == 1 else f"lote de {len(archivos)} archivos"
+
+        with self._ollama_sem:
+            prompt = self._build_prompt(label, codigo, self._project_context)
+            response = self._llm.generate(prompt)
+
+        if not response:
+            return 0
+
+        has_valid = "No se encontraron vulnerabilidades" not in response
+        file_vuln_count = 0
+
+        if has_valid:
+            for af in archivos:
+                self._parse_and_store_findings(analisis_id, af["filepath"], response, raw_response=response)
+                file_vuln_count += 1
+
+        with report_lock:
+            if file_vuln_count > 0:
+                for af in archivos:
+                    header = f"{'=' * 60}\nARCHIVO: {af['filepath']}\n{'=' * 60}"
+                    report_lines.append(header + "\n" + response)
+            else:
+                for af in archivos:
+                    report_lines.append(
+                        f"{'=' * 60}\nARCHIVO: {af['filepath']}\n{'=' * 60}\nNo se encontraron vulnerabilidades.\n"
+                    )
+
+        return file_vuln_count
+
+    # ── Execute principal ────────────────────────────────────────────────
 
     def execute(
         self,
         project_path: str,
         api_key: str = "",
         servicio_url: str = "",
+        usuario_id: int = 0,
+        archivos_remotos: list[dict] | None = None,
     ) -> dict:
-        project_path = os.path.abspath(project_path)
-        if not os.path.isdir(project_path):
-            raise AnalisisError(f"La ruta '{project_path}' no es un directorio valido")
-
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        report_base_name = f"informe_seguridad_{timestamp}"
-        os.makedirs(settings.report_output_dir, exist_ok=True)
-        txt_path = os.path.join(settings.report_output_dir, f"{report_base_name}.txt")
-        pdf_path = os.path.join(settings.report_output_dir, f"{report_base_name}.pdf")
-
-        analisis_id = self._analisis_repo.create(project_path)
+        analisis_id = self._analisis_repo.create(project_path, usuario_id=usuario_id)
         self._analisis_repo.update_state(analisis_id, EstadoAnalisis.EN_PROCESO)
 
-        report_lines: list[str] = []
-        total_files = 0
-        total_vulnerabilities = 0
+        # 1. Obtener lista de archivos
+        if archivos_remotos is not None:
+            archivos = [af for af in archivos_remotos if af.get("contenido", "").strip()]
+        else:
+            project_path = os.path.abspath(project_path)
+            if not os.path.isdir(project_path):
+                raise AnalisisError(f"La ruta '{project_path}' no es un directorio valido")
+            archivos = self._cargar_archivos(project_path)
 
-        for root, dirs, files in os.walk(project_path, topdown=True):
-            dirs[:] = [d for d in dirs if d not in settings.ignore_dirs and not d.startswith('.')]
-
-            for file in files:
-                if not (file.endswith(settings.code_extensions) or file in settings.without_ext_files):
-                    continue
-                total_files += 1
-                path = os.path.join(root, file)
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                except Exception as e:
-                    print(f"  No se pudo leer {path}: {e}")
-                    continue
-
-                print(f"  Analizando {path}...")
-                chunk_vulns = self._analizar_archivo(
-                    path, content, analisis_id,
-                    report_lines=report_lines,
-                )
-                total_vulnerabilities += chunk_vulns
-
+        total_files = len(archivos)
         if total_files == 0:
             self._analisis_repo.update_state(
                 analisis_id, EstadoAnalisis.FALLIDO,
@@ -214,16 +378,61 @@ class AnalizarProyecto:
             return {"analisis_id": analisis_id, "status": "error",
                     "message": "No se encontraron archivos de codigo"}
 
-        # only generate reports if vulnerabilities were found
+        # 2. Contexto unico de ChromaDB (una sola vez)
+        self._build_project_context(archivos)
+
+        # 3. Agrupar archivos pequenos en lotes
+        items = self._agrupar_archivos(archivos)
+
+        # 4. Procesar en paralelo
+        report_lines: list[str] = []
+        report_lock = threading.Lock()
+        total_vulnerabilities = 0
+
+        self._analisis_repo.update_state(
+            analisis_id, EstadoAnalisis.EN_PROCESO,
+            totalFiles=total_files,
+        )
+
+        max_workers = min(settings.analysis_max_workers, len(items))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {}
+            for item in items:
+                future = pool.submit(
+                    self._analizar_item, item, analisis_id,
+                    report_lines, report_lock,
+                )
+                futures[future] = item
+
+            for future in as_completed(futures):
+                try:
+                    chunk = future.result()
+                    total_vulnerabilities += chunk
+                except Exception as e:
+                    logger.error("Error en item de analisis: %s", e)
+
+        # 5. Generar reportes
+        pdf_bytes = None
         if total_vulnerabilities > 0 and report_lines:
             report_text = "\n".join(report_lines)
-            if self._report_gen:
-                self._report_gen.generate_txt(report_text, txt_path)
-                self._report_gen.generate_pdf(report_text, pdf_path)
-            reporte_txt = txt_path
-            reporte_pdf = pdf_path
-            print(f"   TXT: {txt_path}")
-            print(f"   PDF: {pdf_path}")
+            if archivos_remotos is not None:
+                if self._report_gen:
+                    pdf_bytes = self._report_gen.generate_pdf_bytes(report_text)
+                reporte_txt = report_text
+                reporte_pdf = ""
+            else:
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+                report_base_name = f"informe_seguridad_{timestamp}"
+                os.makedirs(settings.report_output_dir, exist_ok=True)
+                txt_path = os.path.join(settings.report_output_dir, f"{report_base_name}.txt")
+                pdf_path = os.path.join(settings.report_output_dir, f"{report_base_name}.pdf")
+                if self._report_gen:
+                    self._report_gen.generate_txt(report_text, txt_path)
+                    self._report_gen.generate_pdf(report_text, pdf_path)
+                reporte_txt = txt_path
+                reporte_pdf = pdf_path
+                print(f"   TXT: {txt_path}")
+                print(f"   PDF: {pdf_path}")
         else:
             reporte_txt = ""
             reporte_pdf = ""
@@ -238,7 +447,7 @@ class AnalizarProyecto:
             report_text = "\n".join(report_lines) if report_lines else "Sin hallazgos"
             self._enviar_resultado(report_text, api_key, servicio_url, analisis_id)
 
-        return {
+        result = {
             "analisis_id": analisis_id,
             "status": "completado",
             "total_files": total_files,
@@ -246,100 +455,9 @@ class AnalizarProyecto:
             "reporte_txt": reporte_txt,
             "reporte_pdf": reporte_pdf,
         }
-
-    def _analizar_archivo(
-        self,
-        filepath: str,
-        content: str,
-        analisis_id: str,
-        report_lines: list[str],
-    ) -> bool:
-        _, ext = os.path.splitext(filepath)
-        ext = ext.lstrip(".").lower()
-        chunks = _split_functions(content, ext)
-
-        all_findings: list[str] = []
-        file_vuln_count = 0
-
-        query = content[:settings.analysis_query_length]
-        query_embedding = self._embed.generate(query)
-        retrieved_nvd: list[str] = []
-        retrieved_exploit: list[str] = []
-
-        if query_embedding is not None:
-            try:
-                retrieved_nvd = self._vector_store.query(
-                    query_embedding, settings.chroma_nvd_collection,
-                    n_results=settings.chroma_query_results,
-                )
-            except Exception as e:
-                logger.warning("Error querying ChromaDB NVD collection: %s", e)
-            try:
-                retrieved_exploit = self._vector_store.query(
-                    query_embedding, settings.chroma_exploit_collection,
-                    n_results=settings.chroma_query_results,
-                )
-            except Exception as e:
-                logger.warning("Error querying ChromaDB ExploitDB collection: %s", e)
-            if self._cve_repo:
-                for i, doc_text in enumerate(retrieved_nvd):
-                    for line in doc_text.split('\n'):
-                        if line.startswith("CVE ID:"):
-                            cve_id = line.replace("CVE ID:", "").strip()
-                            cve = self._cve_repo.get_by_id(cve_id)
-                            if cve and cve.description:
-                                retrieved_nvd[i] = (
-                                    f"CVE ID: {cve_id}\n"
-                                    f"Severidad: {cve.severity} (CVSS: {cve.score})\n"
-                                    f"Descripcion: {cve.description}"
-                                )
-                            break
-
-        parts = []
-        if retrieved_nvd:
-            parts.append("**Vulnerabilidades NVD relacionadas:**\n" + "\n---\n".join(retrieved_nvd))
-        if retrieved_exploit:
-            parts.append("**Exploits publicos relacionados (ExploitDB):**\n" + "\n---\n".join(retrieved_exploit))
-        context_str = "\n\n".join(parts) if parts else ""
-        if len(context_str) > settings.analysis_max_context_chars:
-            context_str = context_str[:settings.analysis_max_context_chars] + "\n... [CONTEXTO TRUNCADO]"
-
-        # build a single prompt with ALL chunks from this file
-        chunks_in_prompt = []
-        total_code_len = 0
-        for chunk in chunks:
-            chunk_code = chunk["code"]
-            remaining = settings.analysis_chunk_size - total_code_len
-            if remaining <= 0:
-                break
-            if len(chunk_code) > remaining:
-                chunk_code = chunk_code[:remaining] + "\n... [TRUNCADO]"
-            total_code_len += len(chunk_code)
-            label = f"{chunk['name']} (l\u00edneas {chunk['start_line']}-{chunk['end_line']})"
-            chunks_in_prompt.append(f"=== {label} ===\n{chunk_code}")
-
-        full_code_block = "\n\n".join(chunks_in_prompt)
-        prompt = self._build_prompt(filepath, full_code_block, context_str)
-        response = self._llm.generate(prompt)
-
-        has_valid_response = bool(response and "No se encontraron vulnerabilidades" not in response)
-        if has_valid_response:
-            self._parse_and_store_findings(analisis_id, filepath, response, raw_response=response)
-            all_findings.append(response)
-            file_vuln_count += 1
-
-        if file_vuln_count > 0:
-            header = f"{'=' * 60}\nARCHIVO: {filepath}\n{'=' * 60}"
-            report_lines.append(header + "\n" + "\n\n".join(all_findings))
-        elif response:
-            print(f"    No se encontraron vulnerabilidades.")
-            report_lines.append(
-                f"{'=' * 60}\nARCHIVO: {filepath}\n{'=' * 60}\nNo se encontraron vulnerabilidades.\n"
-            )
-        else:
-            print(f"    Error: el modelo no respondi\u00f3 (timeout).")
-
-        return file_vuln_count
+        if pdf_bytes is not None:
+            result["pdf_bytes"] = pdf_bytes
+        return result
 
     def _build_prompt(self, filepath: str, full_code_block: str, context_str: str) -> str:
         ctx = f"\n\nContexto:\n{context_str}" if context_str else ""
@@ -423,6 +541,8 @@ class AnalizarProyecto:
 
     def _save_finding(self, analisis_id: str, filepath: str, finding: dict[str, str], raw_response: str = "") -> None:
         try:
+            analisis = self._analisis_repo.get_by_id(analisis_id)
+            usuario_id = analisis.usuario_id if analisis else 0
             self._hallazgo_repo.store(Hallazgo(
                 analisis_id=analisis_id,
                 filepath=filepath,
@@ -434,6 +554,7 @@ class AnalizarProyecto:
                 cve_cwe=finding.get("cve_cwe", "N/A"),
                 owasp=finding.get("owasp", ""),
                 raw_response=raw_response,
+                usuario_id=usuario_id,
             ))
         except Exception as e:
             logger.warning("No se pudo guardar el hallazgo en MongoDB: %s", e)

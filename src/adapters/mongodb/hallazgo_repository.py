@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from bson.objectid import ObjectId
+from gridfs import GridFS
+from gridfs.errors import NoFile
 from typing import Optional
 
 from src.domain.models import Hallazgo, Analisis
@@ -24,6 +26,7 @@ class MongoHallazgoRepository(IHallazgoRepository):
             "cve_cwe": hallazgo.cve_cwe,
             "owasp": hallazgo.owasp,
             "raw_response": hallazgo.raw_response,
+            "usuarioId": hallazgo.usuario_id,
         }
         result = self._col.insert_one(doc)
         return str(result.inserted_id)
@@ -39,7 +42,9 @@ class MongoHallazgoRepository(IHallazgoRepository):
             mitigacion=d.get("mitigacion", ""),
             ubicacion=d.get("ubicacion", ""),
             cve_cwe=d.get("cve_cwe", "N/A"),
+            owasp=d.get("owasp", ""),
             raw_response=d.get("raw_response", ""),
+            usuario_id=d.get("usuarioId", 0),
         ) for d in docs]
 
     def get_severidad_counts(self, analisis_id: str) -> dict[str, int]:
@@ -53,8 +58,9 @@ class MongoHallazgoRepository(IHallazgoRepository):
 class MongoAnalisisRepository(IAnalisisRepository):
     def __init__(self):
         self._col = MongoConnection.get_db()["analisis"]
+        self._fs = GridFS(MongoConnection.get_db())
 
-    def create(self, project_path: str, total_files: int = 0) -> str:
+    def create(self, project_path: str, total_files: int = 0, usuario_id: int = 0) -> str:
         doc = {
             "projectPath": project_path,
             "timestamp": datetime.now(timezone.utc),
@@ -62,6 +68,7 @@ class MongoAnalisisRepository(IAnalisisRepository):
             "totalFiles": total_files,
             "archivosAnalizados": 0,
             "taskId": "",
+            "usuarioId": usuario_id,
         }
         result = self._col.insert_one(doc)
         return str(result.inserted_id)
@@ -85,6 +92,7 @@ class MongoAnalisisRepository(IAnalisisRepository):
             reporte_txt=doc.get("reporteTxt", ""),
             reporte_pdf=doc.get("reportePdf", ""),
             error=doc.get("error", ""),
+            usuario_id=doc.get("usuarioId", 0),
         )
 
     def list_all(self, limit: int = 20) -> list[Analisis]:
@@ -100,4 +108,28 @@ class MongoAnalisisRepository(IAnalisisRepository):
             reporte_txt=d.get("reporteTxt", ""),
             reporte_pdf=d.get("reportePdf", ""),
             error=d.get("error", ""),
+            usuario_id=d.get("usuarioId", 0),
         ) for d in docs]
+
+    def store_pdf(self, analisis_id: str, pdf_bytes: bytes) -> None:
+        try:
+            existing = self._fs.find_one({"filename": f"reporte_{analisis_id}.pdf"})
+            if existing:
+                self._fs.delete(existing._id)
+            self._fs.put(pdf_bytes, filename=f"reporte_{analisis_id}.pdf", metadata={"analisisId": analisis_id})
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Error al almacenar PDF en GridFS: %s", e)
+
+    def get_pdf(self, analisis_id: str) -> Optional[bytes]:
+        try:
+            gf = self._fs.find_one({"filename": f"reporte_{analisis_id}.pdf"})
+            if gf is None:
+                return None
+            return gf.read()
+        except NoFile:
+            return None
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Error al leer PDF de GridFS: %s", e)
+            return None

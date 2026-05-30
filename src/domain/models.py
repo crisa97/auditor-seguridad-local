@@ -32,6 +32,7 @@ class Hallazgo:
     cve_cwe: str
     owasp: str = ""
     raw_response: str = ""
+    usuario_id: int = 0
 
 
 @dataclass
@@ -46,6 +47,7 @@ class Analisis:
     reporte_txt: str = ""
     reporte_pdf: str = ""
     error: str = ""
+    usuario_id: int = 0
 
 
 @dataclass
@@ -57,6 +59,7 @@ class ApiKey:
     activa: bool = True
     fecha_expiracion: Optional[datetime] = None
     ultimo_uso: Optional[datetime] = None
+    usuario_id: int = 0
 
 
 @dataclass

@@ -1,5 +1,6 @@
 import datetime
 import html
+import io
 import logging
 import os
 import re
@@ -37,16 +38,11 @@ def _severity_color(value: str):
 
 
 class PdfReportGenerator(IReportGenerator):
-    def generate_pdf(self, report_text: str, output_path: str) -> None:
-        doc = SimpleDocTemplate(
-            output_path, pagesize=A4,
-            rightMargin=18*mm, leftMargin=18*mm,
-            topMargin=15*mm, bottomMargin=15*mm,
-        )
+
+    def _build_story(self, report_text: str, doc: SimpleDocTemplate) -> list:
         styles = getSampleStyleSheet()
         story = []
 
-        # ── Title ──
         title_style = ParagraphStyle(
             'ReportTitle', parent=styles['Heading1'],
             fontSize=22, spaceAfter=4*mm, alignment=1,
@@ -55,13 +51,11 @@ class PdfReportGenerator(IReportGenerator):
         story.append(Paragraph("Informe de Seguridad del Proyecto", title_style))
         story.append(Spacer(1, 2*mm))
 
-        # ── Date ──
         date_style = ParagraphStyle('DateLine', fontSize=9, textColor=HexColor("#666666"), alignment=1)
         story.append(Paragraph(
             f"Generado el {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", date_style))
         story.append(Spacer(1, 4*mm))
 
-        # ── Disclaimer ──
         disclaimer_style = ParagraphStyle(
             'Disclaimer', fontSize=9, leading=13,
             textColor=HexColor("#555555"),
@@ -78,7 +72,6 @@ class PdfReportGenerator(IReportGenerator):
         ))
         story.append(Spacer(1, 6*mm))
 
-        # ── Style constants ──
         field_label_style = ParagraphStyle('FL', fontName='Helvetica-Bold', fontSize=9)
         field_value_style = ParagraphStyle('FV', fontName='Helvetica', fontSize=9, leading=13)
         code_style = ParagraphStyle(
@@ -102,7 +95,6 @@ class PdfReportGenerator(IReportGenerator):
             if not lines:
                 continue
 
-            # ── File header ──
             file_header = lines[0].strip()
             file_style = ParagraphStyle(
                 'FileH', parent=styles['Heading2'],
@@ -118,7 +110,6 @@ class PdfReportGenerator(IReportGenerator):
                 if not line:
                     continue
 
-                # ── Code fence ──
                 if line.startswith("```"):
                     buf = []
                     while i < len(lines):
@@ -132,19 +123,16 @@ class PdfReportGenerator(IReportGenerator):
                         story.append(Spacer(1, 2*mm))
                     continue
 
-                # ── Finding title: "### Something" or "### N. Something" ──
                 if re.match(r"^#{1,4}\s", line):
                     title_text = re.sub(r"^#{1,4}\s+\d*[\.\)]?\s*\*{0,2}", "", line).strip().rstrip("*").strip()
                     if title_text:
                         story.append(Paragraph(f"<b>{_esc(title_text)}</b>", finding_style))
                     continue
 
-                # ── Field: "**Field:** Value" (value may be multiline) ──
                 m = re.match(r"^\*{2}(.+?)\*{2}:\s*(.*)", line)
                 if m:
                     field_name = m.group(1).strip()
                     first_value = m.group(2).strip()
-                    # Accumulate continuation lines until next field or blank line
                     full_value = [first_value] if first_value else []
                     while i < len(lines):
                         nxt = lines[i].strip()
@@ -180,25 +168,46 @@ class PdfReportGenerator(IReportGenerator):
                     story.append(tbl)
                     continue
 
-                # ── Bullet list ──
                 if line.startswith("- ") or line.startswith("* ") or line.startswith("\u2022 "):
                     story.append(Paragraph(f"&bull; {_esc(line[2:])}", field_value_style))
                     continue
 
-                # ── Numbered list ──
                 if re.match(r"^\d+[\.\)]\s", line):
                     story.append(Paragraph(_esc(line), field_value_style))
                     continue
 
-                # ── Regular text ──
                 story.append(Paragraph(_esc(line), intro_style))
 
             story.append(Spacer(1, 4*mm))
 
+        return story
+
+    def generate_pdf(self, report_text: str, output_path: str) -> None:
+        doc = SimpleDocTemplate(
+            output_path, pagesize=A4,
+            rightMargin=18*mm, leftMargin=18*mm,
+            topMargin=15*mm, bottomMargin=15*mm,
+        )
+        story = self._build_story(report_text, doc)
         try:
             doc.build(story)
         except Exception as e:
             logger.error("Error al generar PDF: %s", e)
+            raise
+
+    def generate_pdf_bytes(self, report_text: str) -> bytes:
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf, pagesize=A4,
+            rightMargin=18*mm, leftMargin=18*mm,
+            topMargin=15*mm, bottomMargin=15*mm,
+        )
+        story = self._build_story(report_text, doc)
+        try:
+            doc.build(story)
+            return buf.getvalue()
+        except Exception as e:
+            logger.error("Error al generar PDF en memoria: %s", e)
             raise
 
     def generate_txt(self, report_text: str, output_path: str) -> None:
