@@ -41,16 +41,24 @@ app.add_middleware(
 )
 
 app.include_router(rag_router, prefix="/api/v1/rag")
+app.include_router(rag_router, prefix="/api/v2/rag")
 app.include_router(enrich_router, prefix="/api/v1/rag")
-
 
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "service": "validation-service"}
 
-
 @app.on_event("startup")
 def startup_event():
+    log.info("=" * 50)
+    log.info("  Validation Service iniciado")
+    log.info("  Endpoints:")
+    log.info("    POST /api/v1/rag/consultar")
+    log.info("    POST /api/v2/rag/analizar")
+    log.info("    GET  /api/v2/rag/reportes/{id}")
+    log.info("    POST /api/v1/rag/enrichir")
+    log.info("    GET  /api/v1/health")
+    log.info("    GET  /api/v1/docs")
     log.info("=" * 50)
     log.info("  Validation Service iniciado")
     log.info("  Endpoints:")

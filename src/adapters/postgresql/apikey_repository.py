@@ -27,7 +27,7 @@ class PostgresApiKeyRepository(IApiKeyRepository):
             cur = conn.cursor()
             cur.execute(
                 "SELECT key_hash, key_prefix, nombre_cliente, fecha_expiracion, "
-                "activa, permisos, ultimo_uso FROM api_keys WHERE key_hash = %s",
+                "activa, permisos, ultimo_uso, usuario_id FROM api_keys WHERE key_hash = %s",
                 (key_hash,),
             )
             row = cur.fetchone()
@@ -41,6 +41,7 @@ class PostgresApiKeyRepository(IApiKeyRepository):
                 activa=row[4],
                 permisos=row[5],
                 ultimo_uso=row[6],
+                usuario_id=row[7] or 0,
             )
         finally:
             PostgresConnection.return_conn(conn)

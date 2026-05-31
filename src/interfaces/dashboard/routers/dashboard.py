@@ -57,6 +57,13 @@ class CveItem(BaseModel):
     score: str
 
 
+def _build_usuario_filter(request: Request) -> dict:
+    user = request.state.user
+    if user.get("rol") == "admin":
+        return {}
+    return {"usuarioId": user.get("id", 0)}
+
+
 @router.get("/stats", response_model=StatsResponse)
 @require_auth(roles=["admin"])
 def get_stats(request: Request):
@@ -93,7 +100,7 @@ def get_stats(request: Request):
 
 
 @router.get("/analisis")
-@require_auth(roles=["admin"])
+@require_auth(roles=["admin", "usuario"])
 def get_analisis(
     request: Request,
     limit: int = Query(default=20, ge=1, le=100),
@@ -101,7 +108,7 @@ def get_analisis(
 ):
     db = MongoConnection.get_db()
     try:
-        query = {}
+        query = _build_usuario_filter(request)
         if estado:
             query["estado"] = estado
         docs = list(db["analisis"].find(query).sort("timestamp", -1).limit(limit))
@@ -134,7 +141,7 @@ def get_hallazgos(
 ):
     db = MongoConnection.get_db()
     try:
-        query = {}
+        query = _build_usuario_filter(request)
         if severidad:
             query["severidad"] = severidad
         if analisis_id:

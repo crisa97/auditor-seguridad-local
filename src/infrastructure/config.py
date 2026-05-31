@@ -52,7 +52,18 @@ class Settings:
     analysis_chunk_size: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_CHUNK_SIZE", "8000")))
     analysis_query_length: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_QUERY_LENGTH", "500")))
     analysis_max_context_chars: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_MAX_CONTEXT_CHARS", "2000")))
+    analysis_avg_time_per_item: float = field(default_factory=lambda: float(os.getenv("ANALYSIS_AVG_TIME_PER_ITEM", "15.0")))
     report_output_dir: str = field(default_factory=lambda: os.getenv("REPORT_OUTPUT_DIR", "reportes"))
+
+    # Optimizacion de analisis
+    analysis_max_workers: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_MAX_WORKERS", "3")))
+    analysis_use_project_embedding: bool = field(default_factory=lambda: os.getenv("ANALYSIS_USE_PROJECT_EMBEDDING", "true").lower() in ("true", "1", "yes"))
+    analysis_combine_small_files: bool = field(default_factory=lambda: os.getenv("ANALYSIS_COMBINE_SMALL_FILES", "true").lower() in ("true", "1", "yes"))
+    analysis_small_file_lines: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_SMALL_FILE_LINES", "50")))
+    analysis_max_file_size_kb: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_MAX_FILE_SIZE_KB", "512")))
+    analysis_minified_extensions: tuple = field(default_factory=lambda: (
+        ".min.js", ".min.css", ".bundle.js", ".chunk.js",
+    ))
 
     # MongoDB
     mongo_uri: str = field(default_factory=lambda: os.getenv("MONGO_URI", "mongodb://localhost:27017/vulnerabilidades"))
@@ -102,8 +113,7 @@ class Settings:
         ".zig", ".odin", ".c3", ".hob", ".cobra", ".nim",
         ".wren", ".cr", ".elm", ".purs", ".dhall", ".cue",
         ".json5", ".jsonc", ".hjson", ".bson",
-        ".editorconfig", ".gitignore", ".gitattributes",
-        ".dockerignore", ".npmignore", ".eslintignore",
+        ".editorconfig", ".gitattributes",
         ".prettierignore", ".stylelintignore", ".babelrc",
         ".eslintrc", ".stylelintrc", ".postcssrc", ".browserslistrc",
         ".tfvars", ".tfplan", ".arm", ".auto.tfvars", ".hcl",

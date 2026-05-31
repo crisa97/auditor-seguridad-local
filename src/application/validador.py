@@ -45,6 +45,7 @@ class ValidarApiKey:
         return True, "API key valida.", {
             "nombre_cliente": api_key.nombre_cliente,
             "permisos": api_key.permisos,
+            "usuario_id": api_key.usuario_id,
         }
 
 

@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     fecha_expiracion TIMESTAMP WITH TIME ZONE,
     activa          BOOLEAN DEFAULT TRUE,
     permisos        VARCHAR(100) DEFAULT 'rag:leer',
-    ultimo_uso      TIMESTAMP WITH TIME ZONE
+    ultimo_uso      TIMESTAMP WITH TIME ZONE,
+    usuario_id      INTEGER REFERENCES users(id) DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_apikey_hash
