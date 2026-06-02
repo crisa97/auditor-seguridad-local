@@ -1,37 +1,75 @@
 const express = require('express');
 const multer = require('multer');
-const { exec } = require('child_process');
 const fs = require('fs');
+
 const app = express();
-app.use(express.urlencoded({ extended: true }));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 const upload = multer({
   dest: 'uploads/'
 });
+
+const users = [
+  {
+    id: 1,
+    username: 'admin',
+    password: '123456'
+  }
+];
+
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+
+  const user = users.find(
+    u => u.username == username && u.password == password
+  );
+
+  if (!user) {
+    return res.status(401).json({
+      message: 'Login failed'
+    });
+  }
+
+  res.json({
+    message: 'Login successful',
+    user
+  });
+});
+
 app.post('/upload', upload.single('file'), (req, res) => {
-  
-  const username = req.body.username;
-  const filename = req.file.originalname;
-  exec`mv uploads/${req.file.filename} uploads/${filename}`, (err) => {
-    if (err) {
-      return res.send(err.message);
-    }
-    res.send(`
-      <h1>Archivo subido</h1>
-      <p>Usuario: ${username}</p>
-      <p>Archivo: ${filename}</p>
-    `);
+  res.json({
+    filename: req.file.originalname,
+    path: req.file.path
   });
 });
-app.get('/read', (req, res) => {
+
+app.get('/download', (req, res) => {
   const file = req.query.file;
-  fs.readFile`uploads/${file}`, 'utf8', (err, data) => {
-    if (err) {
-      return res.send('Error leyendo archivo');
-    }
-    res.send(data);
-  });
+
+  const content = fs.readFileSync(
+    './documents/' + file,
+    'utf8'
+  );
+
+  res.send(content);
 });
+
+app.post('/search', (req, res) => {
+  const keyword = req.body.keyword;
+
+  const html = `
+    <html>
+      <body>
+        <h2>Resultados para: ${keyword}</h2>
+      </body>
+    </html>
+  `;
+
+  res.send(html);
+});
+
 app.listen(3000, () => {
-  console.log('Servidor ejecutándose');
+  console.log('Server started');
 });

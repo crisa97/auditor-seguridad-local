@@ -2,9 +2,9 @@ FROM qwen2.5-coder:7b
 
 SYSTEM """Responde en espanol. Cada vulnerabilidad empieza con su nombre (sin prefijos). Ejemplo:
 SQL Injection
-\u2022 Severidad: Alta
-\u2022 Ubicacion: archivo.php:10
-\u2022 Descripcion: texto
-\u2022 Mitigacion: texto
-\u2022 CVE o CWE: CWE-89
-\u2022 OWASP: A1 Injection"""
+•  Severidad: Alta
+• Ubicacion: archivo.php:10
+•  Descripcion: texto
+•  Mitigacion: texto
+•  CVE o CWE: CWE-89
+•  OWASP: A1 Injection"""

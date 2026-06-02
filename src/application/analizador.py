@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 _FIELD_MAP = [
-    (("\u2022 Severidad:", "* Severidad:", "- Severidad:", "**Severidad:"), "severidad"),
-    (("\u2022 Ubicaci\u00f3n:", "\u2022 Ubicacion:", "* Ubicaci\u00f3n:", "* Ubicacion:", "- Ubicaci\u00f3n:", "- Ubicacion:", "**Ubicacion:"), "ubicacion"),
-    (("\u2022 Descripci\u00f3n:", "\u2022 Descripcion:", "* Descripci\u00f3n:", "* Descripcion:", "- Descripci\u00f3n:", "- Descripcion:", "**Descripcion:"), "descripcion"),
-    (("\u2022 Mitigaci\u00f3n:", "\u2022 Mitigacion:", "* Mitigaci\u00f3n:", "* Mitigacion:", "- Mitigaci\u00f3n:", "- Mitigacion:", "**Mitigacion:"), "mitigacion"),
-    (("\u2022 CVE o CWE:", "* CVE o CWE:", "- CVE o CWE:", "**CVE o CWE:"), "cve_cwe"),
-    (("\u2022 OWASP:", "* OWASP:", "- OWASP:", "OWASP:", "Owasp:", "**OWASP:"), "owasp"),
+    (("•  Severidad:", "* Severidad:", "- Severidad:", "**Severidad:"), "severidad"),
+    (("•  Ubicaci\u00f3n:", "•  Ubicacion:", "* Ubicaci\u00f3n:", "* Ubicacion:", "- Ubicaci\u00f3n:", "- Ubicacion:", "**Ubicacion:"), "ubicacion"),
+    (("•  Descripci\u00f3n:", "•  Descripcion:", "* Descripci\u00f3n:", "* Descripcion:", "- Descripci\u00f3n:", "- Descripcion:", "**Descripcion:"), "descripcion"),
+    (("•  Mitigaci\u00f3n:", "•  Mitigacion:", "* Mitigaci\u00f3n:", "* Mitigacion:", "- Mitigaci\u00f3n:", "- Mitigacion:", "**Mitigacion:"), "mitigacion"),
+    (("•  CVE o CWE:", "* CVE o CWE:", "- CVE o CWE:", "**CVE o CWE:"), "cve_cwe"),
+    (("•  OWASP:", "* OWASP:", "- OWASP:", "OWASP:", "Owasp:", "**OWASP:"), "owasp"),
 ]
 
 # languages where indent signals block structure (Python, Ruby, etc.)

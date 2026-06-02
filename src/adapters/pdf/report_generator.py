@@ -73,7 +73,7 @@ class PdfReportGenerator(IReportGenerator):
             "<b>Aviso importante:</b> Todos los hallazgos identificados se deben "
             "verificar de forma manual, ya que esta es una herramienta automatizada "
             "para evitar falsos positivos. Posteriormente, un auditor real puede "
-            "identificar nuevos danos o vulnerabilidades no detectadas.",
+            "identificar nuevos daños o vulnerabilidades no detectadas.",
             disclaimer_style,
         ))
         story.append(Spacer(1, 6*mm))
@@ -181,7 +181,7 @@ class PdfReportGenerator(IReportGenerator):
                     continue
 
                 # ── Bullet list ──
-                if line.startswith("- ") or line.startswith("* ") or line.startswith("\u2022 "):
+                if line.startswith("- ") or line.startswith("* ") or line.startswith("•  "):
                     story.append(Paragraph(f"&bull; {_esc(line[2:])}", field_value_style))
                     continue
 

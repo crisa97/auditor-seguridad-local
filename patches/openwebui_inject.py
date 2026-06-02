@@ -150,7 +150,7 @@ async def validation_middleware(request, call_next):
     # 4. Inyectar system prompt de formato (siempre) + RAG (si disponible)
     try:
         messages = body.get("messages", [])
-        system_parts = ["Responde en espanol. Cada vulnerabilidad empieza con su nombre (sin prefijos). Ejemplo:\nSQL Injection\n\u2022 Severidad: Alta\n\u2022 Ubicacion: archivo.php:10\n\u2022 Descripcion: texto\n\u2022 Mitigacion: texto\n\u2022 CVE o CWE: CWE-89\n\u2022 OWASP: A1 Injection"]
+        system_parts = ["Responde en espanol. Cada vulnerabilidad empieza con su nombre (sin prefijos). Ejemplo:\nSQL Injection\n•  Severidad: Alta\n•  Ubicacion: archivo.php:10\n•  Descripcion: texto\n•  Mitigacion: texto\n•  CVE o CWE: CWE-89\n•  OWASP: A1 Injection"]
 
         rag_contexto = None
         if os.getenv("RAG_AUTO_ENRICH", "true").lower() == "true" and api_key:
