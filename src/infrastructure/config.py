@@ -53,6 +53,7 @@ class Settings:
     analysis_query_length: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_QUERY_LENGTH", "500")))
     analysis_max_context_chars: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_MAX_CONTEXT_CHARS", "2000")))
     report_output_dir: str = field(default_factory=lambda: os.getenv("REPORT_OUTPUT_DIR", "reportes"))
+    analysis_concurrency: int = field(default_factory=lambda: int(os.getenv("ANALYSIS_CONCURRENCY", "3")))
 
     # MongoDB
     mongo_uri: str = field(default_factory=lambda: os.getenv("MONGO_URI", "mongodb://localhost:27017/vulnerabilidades"))

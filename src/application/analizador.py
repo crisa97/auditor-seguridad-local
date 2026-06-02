@@ -2,6 +2,8 @@ import logging
 import os
 import datetime
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from src.domain.models import Hallazgo
@@ -12,6 +14,13 @@ from src.ports.services import ILlmService, IEmbeddingService, IVectorStore, IRe
 from src.infrastructure.config import settings
 
 logger = logging.getLogger(__name__)
+
+_print_lock = threading.Lock()
+
+
+def _safe_print(msg: str) -> None:
+    with _print_lock:
+        print(msg)
 
 
 _FIELD_MAP = [
@@ -59,7 +68,7 @@ _BLOCK_SPLIT_MIN = 5  # min lines per block when falling back to blank-line spli
 
 def _split_functions(code: str, ext: str) -> list[dict]:
     """Split code into logical chunks (functions, classes, route handlers, top-level blocks).
-    
+
     Returns list of {name, start_line, end_line, code}.
     """
     lines = code.split("\n")
@@ -180,32 +189,23 @@ class AnalizarProyecto:
         analisis_id = self._analisis_repo.create(project_path)
         self._analisis_repo.update_state(analisis_id, EstadoAnalisis.EN_PROCESO)
 
-        report_lines: list[str] = []
-        total_files = 0
-        total_vulnerabilities = 0
-
+        # Fase 1: recolectar archivos y leer contenido
+        file_entries: list[tuple[str, str]] = []
         for root, dirs, files in os.walk(project_path, topdown=True):
             dirs[:] = [d for d in dirs if d not in settings.ignore_dirs and not d.startswith('.')]
-
             for file in files:
                 if not (file.endswith(settings.code_extensions) or file in settings.without_ext_files):
                     continue
-                total_files += 1
                 path = os.path.join(root, file)
                 try:
                     with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                 except Exception as e:
-                    print(f"  No se pudo leer {path}: {e}")
+                    _safe_print(f"  No se pudo leer {path}: {e}")
                     continue
+                file_entries.append((path, content))
 
-                print(f"  Analizando {path}...")
-                chunk_vulns = self._analizar_archivo(
-                    path, content, analisis_id,
-                    report_lines=report_lines,
-                )
-                total_vulnerabilities += chunk_vulns
-
+        total_files = len(file_entries)
         if total_files == 0:
             self._analisis_repo.update_state(
                 analisis_id, EstadoAnalisis.FALLIDO,
@@ -214,7 +214,52 @@ class AnalizarProyecto:
             return {"analisis_id": analisis_id, "status": "error",
                     "message": "No se encontraron archivos de codigo"}
 
-        # only generate reports if vulnerabilities were found
+        # Fase 2: generar embeddings en lote
+        queries = [content[:settings.analysis_query_length] for _, content in file_entries]
+        _safe_print(f"  Generando embeddings para {total_files} archivos...")
+        all_embeddings = None
+        try:
+            batch_result = self._embed.generate_batch(queries)
+            if batch_result:
+                all_embeddings = batch_result
+        except Exception as e:
+            logger.warning("Error en batch embedding: %s", e)
+
+        # Fase 3: analizar archivos en paralelo
+        report_lines: list[str] = []
+        total_vulnerabilities = 0
+        all_findings_buffer: list[Hallazgo] = []
+
+        _safe_print(f"  Analizando {total_files} archivos ({settings.analysis_concurrency} workers)...")
+        with ThreadPoolExecutor(max_workers=settings.analysis_concurrency) as pool:
+            futures = []
+            for i, (path, content) in enumerate(file_entries):
+                embedding = all_embeddings[i] if all_embeddings and i < len(all_embeddings) else None
+                future = pool.submit(
+                    self._analizar_archivo, path, content, analisis_id, embedding
+                )
+                futures.append(future)
+
+            for future in as_completed(futures):
+                try:
+                    vuln_count, report_section, findings = future.result()
+                    total_vulnerabilities += vuln_count
+                    if report_section:
+                        report_lines.append(report_section)
+                    all_findings_buffer.extend(findings)
+                except Exception as e:
+                    logger.error("Error en thread de analisis: %s", e)
+
+        # Fase 4: guardar hallazgos en lote
+        if all_findings_buffer:
+            try:
+                self._hallazgo_repo.store_batch(all_findings_buffer)
+            except Exception as e:
+                logger.warning("No se pudieron guardar hallazgos en MongoDB: %s", e)
+
+        # Fase 5: generar reportes
+        reporte_txt = ""
+        reporte_pdf = ""
         if total_vulnerabilities > 0 and report_lines:
             report_text = "\n".join(report_lines)
             if self._report_gen:
@@ -222,11 +267,8 @@ class AnalizarProyecto:
                 self._report_gen.generate_pdf(report_text, pdf_path)
             reporte_txt = txt_path
             reporte_pdf = pdf_path
-            print(f"   TXT: {txt_path}")
-            print(f"   PDF: {pdf_path}")
-        else:
-            reporte_txt = ""
-            reporte_pdf = ""
+            _safe_print(f"   TXT: {txt_path}")
+            _safe_print(f"   PDF: {pdf_path}")
 
         self._analisis_repo.update_state(
             analisis_id, EstadoAnalisis.COMPLETADO,
@@ -252,35 +294,37 @@ class AnalizarProyecto:
         filepath: str,
         content: str,
         analisis_id: str,
-        report_lines: list[str],
-    ) -> bool:
+        query_embedding: Optional[list[float]],
+    ) -> tuple[int, Optional[str], list[Hallazgo]]:
         _, ext = os.path.splitext(filepath)
         ext = ext.lstrip(".").lower()
         chunks = _split_functions(content, ext)
 
-        all_findings: list[str] = []
-        file_vuln_count = 0
-
-        query = content[:settings.analysis_query_length]
-        query_embedding = self._embed.generate(query)
+        _safe_print(f"  Analizando {filepath}...")
         retrieved_nvd: list[str] = []
         retrieved_exploit: list[str] = []
 
         if query_embedding is not None:
-            try:
-                retrieved_nvd = self._vector_store.query(
-                    query_embedding, settings.chroma_nvd_collection,
+            # Consultas ChromaDB en paralelo
+            with ThreadPoolExecutor(max_workers=2) as chroma_pool:
+                f_nvd = chroma_pool.submit(
+                    self._vector_store.query, query_embedding, settings.chroma_nvd_collection,
                     n_results=settings.chroma_query_results,
                 )
-            except Exception as e:
-                logger.warning("Error querying ChromaDB NVD collection: %s", e)
-            try:
-                retrieved_exploit = self._vector_store.query(
-                    query_embedding, settings.chroma_exploit_collection,
+                f_exploit = chroma_pool.submit(
+                    self._vector_store.query, query_embedding, settings.chroma_exploit_collection,
                     n_results=settings.chroma_query_results,
                 )
-            except Exception as e:
-                logger.warning("Error querying ChromaDB ExploitDB collection: %s", e)
+                try:
+                    retrieved_nvd = f_nvd.result()
+                except Exception as e:
+                    logger.warning("Error querying ChromaDB NVD collection: %s", e)
+                try:
+                    retrieved_exploit = f_exploit.result()
+                except Exception as e:
+                    logger.warning("Error querying ChromaDB ExploitDB collection: %s", e)
+
+            # Enriquecer CVEs (antes del prompt, igual que antes)
             if self._cve_repo:
                 for i, doc_text in enumerate(retrieved_nvd):
                     for line in doc_text.split('\n'):
@@ -322,24 +366,26 @@ class AnalizarProyecto:
         prompt = self._build_prompt(filepath, full_code_block, context_str)
         response = self._llm.generate(prompt)
 
+        findings: list[Hallazgo] = []
+        file_vuln_count = 0
         has_valid_response = bool(response and "No se encontraron vulnerabilidades" not in response)
         if has_valid_response:
-            self._parse_and_store_findings(analisis_id, filepath, response, raw_response=response)
-            all_findings.append(response)
-            file_vuln_count += 1
+            findings = self._parse_findings(analisis_id, filepath, response, raw_response=response)
+            file_vuln_count = len(findings)
 
+        report_section: Optional[str] = None
         if file_vuln_count > 0:
             header = f"{'=' * 60}\nARCHIVO: {filepath}\n{'=' * 60}"
-            report_lines.append(header + "\n" + "\n\n".join(all_findings))
+            report_section = header + "\n" + response
         elif response:
-            print(f"    No se encontraron vulnerabilidades.")
-            report_lines.append(
+            _safe_print(f"    {filepath} - No se encontraron vulnerabilidades.")
+            report_section = (
                 f"{'=' * 60}\nARCHIVO: {filepath}\n{'=' * 60}\nNo se encontraron vulnerabilidades.\n"
             )
         else:
-            print(f"    Error: el modelo no respondi\u00f3 (timeout).")
+            _safe_print(f"    {filepath} - Error: el modelo no respondi\u00f3 (timeout).")
 
-        return file_vuln_count
+        return file_vuln_count, report_section, findings
 
     def _build_prompt(self, filepath: str, full_code_block: str, context_str: str) -> str:
         ctx = f"\n\nContexto:\n{context_str}" if context_str else ""
@@ -348,13 +394,43 @@ class AnalizarProyecto:
             f"{ctx}\n\n{full_code_block}"
         )
 
-    def _parse_and_store_findings(self, analisis_id: str, filepath: str, response: str, raw_response: str = "") -> None:
+    def _parse_findings(self, analisis_id: str, filepath: str, response: str, raw_response: str = "") -> list[Hallazgo]:
         if "No se encontraron vulnerabilidades" in response:
-            return
+            return []
         lines = response.strip().splitlines()
         current: dict[str, str] = {}
         saved_signatures: set[str] = set()
-        prev_blank = True  # first content line acts as after-blank
+        findings: list[Hallazgo] = []
+        prev_blank = True
+
+        def flush_finding():
+            nonlocal current
+            if not any(current.values()):
+                return
+            if not current.get("severidad") and not current.get("ubicacion"):
+                return
+            if not current.get("titulo"):
+                current["titulo"] = current.get("severidad", "Hallazgo de seguridad")
+            sig = (current.get("ubicacion", ""), current.get("descripcion", "")[:80])
+            if sig not in saved_signatures:
+                saved_signatures.add(sig)
+                try:
+                    findings.append(Hallazgo(
+                        analisis_id=analisis_id,
+                        filepath=filepath,
+                        severidad=current.get("severidad", "Media"),
+                        titulo=current.get("titulo", ""),
+                        descripcion=current.get("descripcion", ""),
+                        mitigacion=current.get("mitigacion", ""),
+                        ubicacion=current.get("ubicacion", ""),
+                        cve_cwe=current.get("cve_cwe", "N/A"),
+                        owasp=current.get("owasp", ""),
+                        raw_response=raw_response,
+                    ))
+                except Exception as e:
+                    logger.warning("Error creando Hallazgo: %s", e)
+            current = {}
+
         for line in lines:
             line = line.strip()
             if not line:
@@ -363,9 +439,7 @@ class AnalizarProyecto:
 
             # Section headers like "Vulnerabilidad 1:" / "Hallazgo 1:" / "1. Injection SQL"
             if re.match(r"^(\d+[\.\)]\s|Vulnerabilidad\s+\d+|Hallazgo\s+\d+|Finding\s+\d+)", line, re.IGNORECASE):
-                self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
-                current = {}
-                # Strip the number prefix and use as title
+                flush_finding()
                 line = re.sub(r"^\d+[\.\)]\s*", "", line).strip()
                 if line:
                     current["titulo"] = line
@@ -377,10 +451,8 @@ class AnalizarProyecto:
             for prefixes, key in _FIELD_MAP:
                 for prefix in prefixes:
                     if line.startswith(prefix):
-                        # encountering a second "Severidad:" means a new finding
                         if key == "severidad" and current.get(key):
-                            self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
-                            current = {}
+                            flush_finding()
                         current[key] = line.split(":", 1)[1].strip()
                         matched_prefix = True
                         prev_blank = False
@@ -393,50 +465,17 @@ class AnalizarProyecto:
 
             # Line without any field prefix
             if prev_blank:
-                # After blank line → title of a new finding
-                self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
-                current = {}
+                flush_finding()
                 current["titulo"] = line
             else:
-                # Continuation text of previous field
                 for prefixes, key in reversed(_FIELD_MAP):
                     if current.get(key):
                         current[key] += " " + line
                         break
             prev_blank = False
 
-        self._maybe_save_finding(analisis_id, filepath, current, saved_signatures, raw_response)
-
-    def _maybe_save_finding(self, analisis_id: str, filepath: str, current: dict[str, str],
-                            saved_signatures: set[str], raw_response: str = "") -> None:
-        if not any(current.values()):
-            return
-        # Skip entries without real fields (introductory text only)
-        if not current.get("severidad") and not current.get("ubicacion"):
-            return
-        if not current.get("titulo"):
-            current["titulo"] = current.get("severidad", "Hallazgo de seguridad")
-        sig = (current.get("ubicacion", ""), current.get("descripcion", "")[:80])
-        if sig not in saved_signatures:
-            saved_signatures.add(sig)
-            self._save_finding(analisis_id, filepath, current, raw_response=raw_response)
-
-    def _save_finding(self, analisis_id: str, filepath: str, finding: dict[str, str], raw_response: str = "") -> None:
-        try:
-            self._hallazgo_repo.store(Hallazgo(
-                analisis_id=analisis_id,
-                filepath=filepath,
-                severidad=finding.get("severidad", "Media"),
-                titulo=finding.get("titulo", ""),
-                descripcion=finding.get("descripcion", ""),
-                mitigacion=finding.get("mitigacion", ""),
-                ubicacion=finding.get("ubicacion", ""),
-                cve_cwe=finding.get("cve_cwe", "N/A"),
-                owasp=finding.get("owasp", ""),
-                raw_response=raw_response,
-            ))
-        except Exception as e:
-            logger.warning("No se pudo guardar el hallazgo en MongoDB: %s", e)
+        flush_finding()
+        return findings
 
     def _enviar_resultado(self, texto: str, api_key: str, servicio_url: str, analisis_id: str) -> None:
         import logging

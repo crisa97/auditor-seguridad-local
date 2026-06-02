@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional
 
 import requests
@@ -39,20 +40,29 @@ class OllamaLlmService(ILlmService):
             },
         }
         timeout = options.get("timeout", settings.ollama_timeout)
-        try:
-            r = requests.post(
-                f"{settings.ollama_api_url}/chat",
-                json=payload,
-                timeout=timeout,
-            )
-            r.raise_for_status()
-            return r.json().get("message", {}).get("content", "")
-        except requests.Timeout:
-            logger.error("Timeout al consultar Ollama (modelo=%s, timeout=%s)", model, timeout)
-            return ""
-        except requests.RequestException as e:
-            logger.error("Error al consultar Ollama: %s", e)
-            return ""
-        except (KeyError, ValueError) as e:
-            logger.error("Error al parsear respuesta de Ollama: %s", e)
-            return ""
+        last_error = None
+
+        for attempt in range(2):
+            try:
+                r = requests.post(
+                    f"{settings.ollama_api_url}/chat",
+                    json=payload,
+                    timeout=timeout,
+                )
+                r.raise_for_status()
+                return r.json().get("message", {}).get("content", "")
+            except requests.Timeout:
+                last_error = f"Timeout al consultar Ollama (modelo={model}, timeout={timeout})"
+                logger.warning("%s (intento %d/2)", last_error, attempt + 1)
+                if attempt == 0:
+                    time.sleep(5)
+                    continue
+            except requests.RequestException as e:
+                logger.error("Error al consultar Ollama: %s", e)
+                return ""
+            except (KeyError, ValueError) as e:
+                logger.error("Error al parsear respuesta de Ollama: %s", e)
+                return ""
+
+        logger.error(last_error)
+        return ""

@@ -13,7 +13,20 @@ class MongoHallazgoRepository(IHallazgoRepository):
         self._col = MongoConnection.get_db()["hallazgos"]
 
     def store(self, hallazgo: Hallazgo) -> str:
-        doc = {
+        doc = self._hallazgo_to_doc(hallazgo)
+        result = self._col.insert_one(doc)
+        return str(result.inserted_id)
+
+    def store_batch(self, hallazgos: list[Hallazgo]) -> list[str]:
+        if not hallazgos:
+            return []
+        docs = [self._hallazgo_to_doc(h) for h in hallazgos]
+        result = self._col.insert_many(docs)
+        return [str(id_) for id_ in result.inserted_ids]
+
+    @staticmethod
+    def _hallazgo_to_doc(hallazgo: Hallazgo) -> dict:
+        return {
             "analisisId": hallazgo.analisis_id,
             "filepath": hallazgo.filepath,
             "severidad": hallazgo.severidad,
@@ -25,8 +38,6 @@ class MongoHallazgoRepository(IHallazgoRepository):
             "owasp": hallazgo.owasp,
             "raw_response": hallazgo.raw_response,
         }
-        result = self._col.insert_one(doc)
-        return str(result.inserted_id)
 
     def get_by_analisis(self, analisis_id: str) -> list[Hallazgo]:
         docs = self._col.find({"analisisId": analisis_id})

@@ -185,8 +185,8 @@ Ejemplos:
     try:
         import requests as req
         req.post(
-            f"{settings.ollama_base_url}/api/generate",
-            json={"model": settings.analyzer_model, "prompt": "ok", "stream": False, "keep_alive": "30m"},
+            f"{settings.ollama_api_url}/chat",
+            json={"model": settings.analyzer_model, "messages": [{"role": "user", "content": "ok"}], "stream": False, "keep_alive": "30m"},
             timeout=600,
         )
     except Exception as e:

@@ -40,6 +40,9 @@ class IHallazgoRepository(ABC):
     def store(self, hallazgo: Hallazgo) -> str: ...
 
     @abstractmethod
+    def store_batch(self, hallazgos: list[Hallazgo]) -> list[str]: ...
+
+    @abstractmethod
     def get_by_analisis(self, analisis_id: str) -> list[Hallazgo]: ...
 
     @abstractmethod
